@@ -5,6 +5,7 @@ DATA_DIR = BASE_DIR / 'data/'
 NETWORK_DIR = DATA_DIR / 'network/'
 DEVICE_DIR = DATA_DIR / 'devices/'
 TIMESERIES_DIR = DATA_DIR / 'timeseries/'
+INP_FILE = 'BWFLnet_2023_04.inp'
 
 
 # print paths for verification
