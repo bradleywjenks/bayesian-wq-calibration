@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "bayesian-wq-calibration"
+version = "0.1.0"
+description = ""
+authors = ["bradleywjenks <b.jenks21@imperial.ac.uk>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pandas = "^2.2.3"
+numpy = "~1.26.4"
+plotly = "^5.24.1"
+wntr = "^1.2.0"
+jupyter = "^1.1.1"
+openpyxl = "^3.1.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
