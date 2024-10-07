@@ -1,0 +1,21 @@
+BWFL control valves in April 2023 model file
+
+DBVs:
+Snowdon Road = link_2839 (from node_1808 to node_1809)
+New Station Way = link_2840 (from node_1810 to node_1811)
+
+PRVs:
+Stoke Lane = link_2835 (from node_1800 to node_1801)
+Woodland Way = link_2848 (from node_1827 to node_1828)
+Lodge Causeway = link_2820 (from node_1768 to node_1769)
+upper DMA (2296) = link_2912 (from node_2070 to node_2071)
+
+IVs (kept-shut isolation valves):
+link_2336
+link_2418
+link_2420
+link_2486
+link_2527
+link_2600
+link_2648
+link_2775

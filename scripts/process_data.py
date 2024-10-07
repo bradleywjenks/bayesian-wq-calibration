@@ -9,9 +9,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import argparse
 import json
+from bayesian_wq_calibration.constants import TIMESERIES_DIR
 
-# data directory
-data_dir = '/home/bradw/workspace/bayesian-wq-calibration/data/'
 
 # pass script arguments
 parser = argparse.ArgumentParser(description='Process raw time series files to create data periods for model calibration.')
@@ -23,7 +22,7 @@ args = parser.parse_args()
 
 ##### GET GOOD DATA PERIODS #####
 
-calibration_data = pd.read_excel(data_dir + 'raw/metrinet-calibration-records.xlsx')
+calibration_data = pd.read_excel(TIMESERIES_DIR / 'raw/metrinet-calibration-records.xlsx')
 if 'datetime' not in calibration_data.columns:
    raise ValueError("The specified file must contain a 'datetime' column.")
 calibration_dates = pd.Series(calibration_data['datetime'].dt.to_period('D').dt.to_timestamp().unique()).sort_values()
@@ -53,11 +52,11 @@ good_data = {new_idx+1: value for new_idx, (old_idx, value) in enumerate(good_da
 
 
 
-##### FILTER TIME SERIES DATA #####
+##### PROCESS TIME SERIES DATA #####
 
-output_dir = Path(data_dir + 'filtered/')
+output_dir = TIMESERIES_DIR / 'processed/'
 
-with zip.ZipFile(data_dir + 'raw/field_lab-data-2021-2024.zip', 'r') as z:
+with zip.ZipFile(TIMESERIES_DIR / 'raw/field_lab-data-2021-2024.zip', 'r') as z:
 
    for filename in z.namelist():
        if filename.endswith('.csv'):
