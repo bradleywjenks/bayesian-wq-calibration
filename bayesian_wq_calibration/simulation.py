@@ -21,7 +21,8 @@ def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_r
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
 
-    # 2. assign head data at 2005 and 2296 inlets
+    # 2. assign boundary heads at reservoir nodes
+    wn, h0 = set_reservoir_heads(wn, pressure_df)
 
     # 3. assign pressure reducing valve outlet pressures (or assign defaults)
 
@@ -56,7 +57,7 @@ def set_simulation_time(wn, datetime):
     time_step = (datetime[1] - datetime[0]).total_seconds()
     total_duration = (datetime.max() - datetime.min()).total_seconds()
 
-    wn.options.time.duration = total_duration + time_step
+    wn.options.time.duration = total_duration
     wn.options.time.hydraulic_timestep = time_step
     wn.options.time.quality_timestep = min(time_step, 60*5)
     wn.options.time.report_timestep = time_step
@@ -67,6 +68,7 @@ def set_simulation_time(wn, datetime):
     wn.options.time.start_clocktime = wn.options.time.start_clocktime
 
     return wn
+
 
 
 def epanet_simulator(wn, sim_type):
@@ -85,3 +87,62 @@ def epanet_simulator(wn, sim_type):
         sim_results.chlorine = results.node['chlorine']
 
     return sim_results
+
+
+
+def set_reservoir_heads(wn, pressure_df):
+
+    reservoir_nodes = wn.reservoir_name_list
+    device_id = sensor_model_id('pressure')
+
+    h0 = {}
+    for idx, node in enumerate(reservoir_nodes):
+
+        # get bounday head patterns
+        bwfl_id = device_id[device_id['model_id'] == node]['bwfl_id'].values[0]
+        elev = device_id[device_id['model_id'] == node]['elev'].values[0]
+        h0[idx] = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values + elev
+
+        # set boundary head values in wn
+        wn.add_pattern(node + "_h0", h0[idx])
+        reservoir = wn.get_node(node)
+        reservoir.head_timeseries.base_value = 1
+        reservoir.head_timeseries.pattern_name = wn.get_pattern(node + "_h0")
+
+    return wn, h0
+
+
+
+def sensor_model_id(device_type):
+
+    node_mapping = pd.read_excel(NETWORK_DIR / 'InfoWorks_to_EPANET_mapping.xlsx', sheet_name='Nodes')
+    link_mapping = pd.read_excel(NETWORK_DIR / 'InfoWorks_to_EPANET_mapping.xlsx', sheet_name='Links')
+
+    if device_type == 'pressure':
+        device_df = pd.read_excel(DEVICE_DIR / 'pressure_device_database.xlsx')
+        element_type = 'node'
+        device_id = device_df[['BWFL ID', 'Asset ID', 'Final Elevation (m)']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'Final Elevation (m)': 'elev'}, inplace=True)
+    elif device_type == 'flow':
+        device_df = pd.read_excel(DEVICE_DIR / 'flow_device_database.xlsx')
+        element_type = 'link'
+        device_id = device_df[['BWFL ID', 'Asset ID']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id'}, inplace=True)
+    elif device_type == 'wq':
+        device_df = pd.read_excel(DEVICE_DIR / 'wq_device_database.xlsx')
+        element_type = 'node'
+        device_id = device_df[['BWFL ID', 'Asset ID']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id'}, inplace=True)
+
+    device_id['asset_id'] = device_id['asset_id'].astype(str)
+    
+    if element_type == 'node':
+        mapping_dict = node_mapping.set_index('InfoWorks Node ID')['EPANET Node ID'].to_dict()
+        device_id['model_id'] = device_id['asset_id'].map(mapping_dict)
+    elif element_type == 'link':
+        mapping_dict = link_mapping.set_index('InfoWorks Link ID')['EPANET Link ID'].to_dict()
+        device_id['model_id'] = device_id['asset_id'].map(mapping_dict)
+
+
+    return device_id
+
