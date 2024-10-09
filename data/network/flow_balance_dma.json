@@ -1,0 +1,9 @@
+{"2296" : {
+    "flow_in" : ["inlet_2296", "New Station Way DBV"],
+    "flow_out" : ["Snowden Road DBV"]
+},
+"2005" : {
+    "flow_in" : ["inlet_2005", "Snowden Road DBV"],
+    "flow_out" : ["New Station Way DBV"]
+}
+}

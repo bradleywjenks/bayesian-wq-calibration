@@ -163,7 +163,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
             for idx, link in enumerate(dbv_links):
                 valve = wn.get_link(link)
                 dbv_controls = f"{link}_dbv_setting_t_{t/4}"
-                cond = wntr.network.controls.SimTimeCondition(wn, '=', t * 900)  # 900 seconds = 15 minutes
+                cond = wntr.network.controls.SimTimeCondition(wn, '=', t*900)  # 900 seconds = 15 minutes
                 act = wntr.network.controls.ControlAction(valve, "setting", dbv_K[idx][t])
                 rule = wntr.network.controls.Rule(cond, [act], name=dbv_controls)
                 wn.add_control(dbv_controls, rule)
@@ -193,7 +193,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
         for idx, link in enumerate(prv_links):
             valve = wn.get_link(link)
             prv_controls = f"{link}_prv_setting_t_{t/4}"
-            cond = wntr.network.controls.SimTimeCondition(wn, '=', t * 900)  # 900 seconds = 15 minutes
+            cond = wntr.network.controls.SimTimeCondition(wn, '=', t*900)  # 900 seconds = 15 minutes
             act = wntr.network.controls.ControlAction(valve, "setting", prv_settings[idx][t])
             rule = wntr.network.controls.Rule(cond, [act], name=prv_controls)
             wn.add_control(prv_controls, rule)
