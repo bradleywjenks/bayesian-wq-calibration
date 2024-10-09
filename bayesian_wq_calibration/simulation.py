@@ -31,6 +31,7 @@ def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_r
     wn = set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status)
 
     # 4. scale demands based on DMA or WWMD resolution
+    wn = scale_demand(wn, flow_df, demand_resolution, flush_data) # NB: remove flushing demands from demand scaling
 
     # 5. assign time information:
     datetime = flow_df['datetime'].unique()
@@ -197,6 +198,31 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
             act = wntr.network.controls.ControlAction(valve, "setting", prv_settings[idx][t])
             rule = wntr.network.controls.Rule(cond, [act], name=prv_controls)
             wn.add_control(prv_controls, rule)
+
+    return wn
+
+
+
+def scale_demand(wn, flow_df, demand_resolution, flush_data):
+
+    datetime = flow_df['datetime'].unique()
+    flow_device_id = sensor_model_id('flow')
+
+    if demand_resolution == 'dma':
+
+        with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
+            flow_balance = json.load(f)
+            zones = flow_balance.keys()
+
+    elif demand_resolution == 'wwmd':
+
+        with open(NETWORK_DIR / 'flow_balance_wwmd.json') as f:
+            flow_balance = json.load(f)
+            zones = flow_balance.keys()
+
+        # insert code here...
+
+
 
     return wn
 
