@@ -7,6 +7,10 @@ DEVICE_DIR = DATA_DIR / 'devices/'
 TIMESERIES_DIR = DATA_DIR / 'timeseries/'
 INP_FILE = 'BWFLnet_2023_04.inp'
 
+IV_CLOSE = 1e10
+IV_OPEN = 1e-4
+IV_OPEN_PART = 4e2
+
 
 # print paths for verification
 if __name__ == "__main__":
