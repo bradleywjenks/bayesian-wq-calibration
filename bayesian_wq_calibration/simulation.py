@@ -124,6 +124,8 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     with open(NETWORK_DIR / 'valve_info.json') as f:
         valve_info = json.load(f)
 
+    datetime = flow_df['datetime'].unique()
+
     pressure_device_id = sensor_model_id('pressure')
     flow_device_id = sensor_model_id('flow')
 
@@ -142,25 +144,22 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     # set dbv settings
     dbv_links = valve_info['dbv_link']
     if dbv_status == 'active':
-        dbv_K = []
+        dbv_K_default = np.where(((datetime.astype('datetime64[h]').astype(int) % 24) < 5) | ((datetime.astype('datetime64[h]').astype(int) % 24) > 21), IV_CLOSE, IV_OPEN_PART)
+        dbv_K = np.tile(dbv_K_default, (2, 1))
         try:
             dbv_K = get_dbv_settings(wn, flow_df, pressure_df, dbv_links)
         except:
             print("Error setting DBV settings. Default values used.")
-            unique_datetimes = np.unique(pressure_df['datetime'])
-            dbv_K = np.where(((unique_datetimes.astype('datetime64[h]').astype(int) % 24) < 5) | ((unique_datetimes.astype('datetime64[h]').astype(int) % 24) > 21), IV_CLOSE, IV_OPEN_PART)
-            dbv_K = np.tile(dbv_K, (2, 1))
         if any(np.isnan(value).sum() for value in dbv_K.values()):
             print("Error setting DBV settings. Default values used.")
-            dbv_K = np.where(((unique_datetimes.astype('datetime64[h]').astype(int) % 24) < 5) | ((unique_datetimes.astype('datetime64[h]').astype(int) % 24) > 21), IV_CLOSE, IV_OPEN_PART)
-            dbv_K = np.tile(dbv_K, (2, 1))
+            dbv_K = np.tile(dbv_K_default, (2, 1))
 
         for idx, link in enumerate(dbv_links):
             wn.get_link(link).initial_setting = dbv_K[idx][0]
             wn.get_link(link).initial_status = "Active"
         
         dbv_controls = []
-        for t in np.arange(1, len(dbv_K)):
+        for t in np.arange(1, len(datetime)):
             for idx, link in enumerate(dbv_links):
                 valve = wn.get_link(link)
                 dbv_controls = f"{link}_dbv_setting_t_{t/4}"
@@ -171,6 +170,33 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
 
     # set prv settings
     prv_links = valve_info['prv_link']
+    prv_dir = valve_info['prv_dir']
+    prv_settings_default = {i: np.tile(valve_info['prv_settings'][i], len(datetime)) for i in range(len(prv_links))}
+    prv_settings = prv_settings_default
+
+    try:
+        prv_settings = get_prv_settings(wn, pressure_df, prv_links, prv_dir)
+    except:
+        print("Error setting PRV settings. Default values used.")
+
+    for idx, link in enumerate(prv_links):
+        valve = wn.get_link(link)
+        wn.remove_link(link)
+        if prv_dir[idx] == 1:
+            wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings[idx][0], initial_status="Active")
+        elif prv_dir[idx] == -1:
+            wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings[idx][0], initial_status="Active")
+
+
+    prv_controls = []
+    for t in np.arange(1, len(datetime)):
+        for idx, link in enumerate(prv_links):
+            valve = wn.get_link(link)
+            prv_controls = f"{link}_prv_setting_t_{t/4}"
+            cond = wntr.network.controls.SimTimeCondition(wn, '=', t * 900)  # 900 seconds = 15 minutes
+            act = wntr.network.controls.ControlAction(valve, "setting", prv_settings[idx][t])
+            rule = wntr.network.controls.Rule(cond, [act], name=prv_controls)
+            wn.add_control(prv_controls, rule)
 
     return wn
 
@@ -239,3 +265,26 @@ def get_dbv_settings(wn, flow_df, pressure_df, dbv_links):
         dbv_K[idx] = dbv_value
 
     return dbv_K
+
+
+
+def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
+
+    pressure_device_id = sensor_model_id('pressure')
+
+    prv_settings = {}
+
+    for idx, link in enumerate(prv_links):
+
+        if prv_dir[idx] == 1:
+            node = wn.get_link(link).end_node_name
+            bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
+            pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
+        elif prv_dir[idx] == -1:
+            node = wn.get_link(link).start_node_name
+            bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
+            pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
+
+        prv_settings[idx] = pressure
+
+    return prv_settings
