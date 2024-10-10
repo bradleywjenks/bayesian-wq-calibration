@@ -77,7 +77,7 @@ def epanet_simulator(wn, sim_type):
     wn.convert_controls_to_rules(priority=3)
     results = wntr.sim.EpanetSimulator(wn).run_sim()
     sim_results = SimResults()
-    sim_results.flow = results.link['flowrate']
+    sim_results.flow = results.link['flowrate'] * 1000 # convert to Lps
     sim_results.velocity = results.link['velocity']
     sim_results.pressure = results.node['pressure']
     sim_results.head = results.node['head']
@@ -151,7 +151,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
             dbv_K = get_dbv_settings(wn, flow_df, pressure_df, dbv_links)
         except:
             print("Error setting DBV settings. Default values used.")
-        if any(np.isnan(value).sum() for value in dbv_K.values()):
+        if any(np.isnan(value).any() for value in dbv_K.values()):
             print("Error setting DBV settings. Default values used.")
             dbv_K = np.tile(dbv_K_default, (2, 1))
 
@@ -172,13 +172,17 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     # set prv settings
     prv_links = valve_info['prv_link']
     prv_dir = valve_info['prv_dir']
-    prv_settings_default = {i: np.tile(valve_info['prv_settings'][i], len(datetime)) for i in range(len(prv_links))}
+    prv_settings_default = {i: np.tile(np.array(valve_info['prv_settings'][i], dtype=float), len(datetime)) for i in range(len(prv_links))}
     prv_settings = prv_settings_default
 
     try:
         prv_settings = get_prv_settings(wn, pressure_df, prv_links, prv_dir)
     except:
         print("Error setting PRV settings. Default values used.")
+
+    if any(np.isnan(value).any() for value in prv_settings.values()):
+        print("Error setting PRV settings. Default values used.")
+        prv_settings = prv_settings_default
 
     for idx, link in enumerate(prv_links):
         valve = wn.get_link(link)
@@ -187,7 +191,6 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
             wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings[idx][0], initial_status="Active")
         elif prv_dir[idx] == -1:
             wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings[idx][0], initial_status="Active")
-
 
     prv_controls = []
     for t in np.arange(1, len(datetime)):
@@ -212,15 +215,35 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
 
         with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
             flow_balance = json.load(f)
-            zones = flow_balance.keys()
 
     elif demand_resolution == 'wwmd':
 
         with open(NETWORK_DIR / 'flow_balance_wwmd.json') as f:
             flow_balance = json.load(f)
-            zones = flow_balance.keys()
 
-        # insert code here...
+            # # check if all wastemeters are present in flow data
+            # for zone in flow_balance.keys():
+            #     if f"wastemeter_{zone}" not in flow_df['bwfl_id'].unique():
+            #         print(f"Error: Wastemeter district {zone} not present in flow data.  Using DMA resolution instead.")
+            #         demand_resolution = 'dma'
+            #         break
+            # if demand_resolution == 'dma':
+            #     with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
+            #         flow_balance = json.load(f)
+
+    inflow_df = pd.DataFrame({'datetime': pd.to_datetime(datetime)}).set_index('datetime')
+
+    for key, values in flow_balance.items():
+        inflow_sum = pd.Series(0, index=inflow_df.index)
+        for sensor in values['flow_in']:
+            inflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
+        outflow_sum = pd.Series(0, index=inflow_df.index)
+        for sensor in values['flow_out']:
+            outflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
+        
+        inflow_df[key] = inflow_sum - outflow_sum
+    
+    print(inflow_df)
 
 
 
