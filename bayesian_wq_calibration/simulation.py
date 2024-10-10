@@ -220,6 +220,8 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
         with open(NETWORK_DIR / 'flow_balance_wwmd.json') as f:
             flow_balance = json.load(f)
 
+        # check if any flow meters have NaN values
+
     inflow_df = pd.DataFrame({'datetime': pd.to_datetime(datetime)}).set_index('datetime')
 
     for key, values in flow_balance.items():

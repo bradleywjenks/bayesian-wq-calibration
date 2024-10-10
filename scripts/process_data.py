@@ -55,24 +55,48 @@ good_data = {new_idx+1: value for new_idx, (old_idx, value) in enumerate(good_da
 ##### PROCESS TIME SERIES DATA #####
 
 output_dir = TIMESERIES_DIR / 'processed/'
+pressure_df = pd.DataFrame()
+flow_df = pd.DataFrame()
+wq_df = pd.DataFrame()
 
 with zip.ZipFile(TIMESERIES_DIR / 'raw/field_lab-data-2021-2024.zip', 'r') as z:
-
    for filename in z.namelist():
-       if filename.endswith('.csv'):
-           with z.open(filename) as f:
-               data = pd.read_csv(f, sep=';')
-               data['datetime'] = pd.to_datetime(data['datetime'])
+      if filename.endswith('.csv'):
+         with z.open(filename) as f:
+            data = pd.read_csv(f, sep=';', low_memory=False)
+            data_type = filename.split('/')[-1].split('.')[0].split('_')[1]
+            if data_type == 'pressure':
+               pressure_df = pd.concat([pressure_df, data])
+            elif data_type == 'flow':
+               flow_df = pd.concat([flow_df, data])
+            else:
+               wq_df = pd.concat([wq_df, data])
+               
+pressure_df['datetime'] = pd.to_datetime(pressure_df['datetime'])
+flow_df['datetime'] = pd.to_datetime(flow_df['datetime'])
+wq_df['datetime'] = pd.to_datetime(wq_df['datetime'])
 
-               for idx, period in good_data.items():
-                   filtered_data = data[(data['datetime'] >= period['start_date']) & (data['datetime'] <= period['end_date'])]
-                   if not filtered_data.empty:
-                       data_type = filename.split('/')[-1].split('.')[0].split('_')[1]
-                       output_filename = output_dir / f"{str(idx).zfill(2)}-{data_type}.csv"
-                       filtered_data.to_csv(output_filename, index=False)
-                       print(f'Saved: {output_filename}')
+# count missing data
+for sensor in pressure_df['bwfl_id'].unique():
+   print(f"Pressure data. Sensor: {sensor}. Missing data count: {pressure_df[pressure_df['bwfl_id'] == sensor]['mean'].isna().sum()} of {len(pressure_df[pressure_df['bwfl_id'] == sensor])}")
+for sensor in flow_df['bwfl_id'].unique():
+   print(f"Flow data. Sensor: {sensor}. Missing data count: {flow_df[flow_df['bwfl_id'] == sensor]['mean'].isna().sum()} of {len(flow_df[flow_df['bwfl_id'] == sensor])}")
+for sensor in wq_df['bwfl_id'].unique():
+   print(f"WQ data. Sensor: {sensor}. Missing data count: {wq_df[wq_df['bwfl_id'] == sensor]['mean'].isna().sum()} of {len(wq_df[wq_df['bwfl_id'] == sensor])}")
+
+
+# impute flow data and boundary head data ('BWFL 19' and 'Woodland Way PRV (inlet)')
+
+
+for idx, period in good_data.items():
+   filtered_pressure_df = pressure_df[(pressure_df['datetime'] >= period['start_date']) & (pressure_df['datetime'] <= period['end_date'])]
+   filtered_flow_df = flow_df[(flow_df['datetime'] >= period['start_date']) & (flow_df['datetime'] <= period['end_date'])]
+   filtered_wq_df = wq_df[(wq_df['datetime'] >= period['start_date']) & (wq_df['datetime'] <= period['end_date'])]
+   if not filtered_wq_df.empty:
+      filtered_pressure_df.to_csv(output_dir / f"{str(idx).zfill(2)}-pressure.csv", index=False)
+      filtered_flow_df.to_csv(output_dir / f"{str(idx).zfill(2)}-flow.csv", index=False)
+      filtered_wq_df.to_csv(output_dir / f"{str(idx).zfill(2)}-wq.csv", index=False)
 
 data_period_json_path = output_dir / 'data_periods.json'
 with open(data_period_json_path, 'w') as json_file:
    json.dump(good_data, json_file, default=str)
-   print(f'Saved data period file to: {data_period_json_path}')
