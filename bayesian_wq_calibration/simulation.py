@@ -211,29 +211,19 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
     datetime = flow_df['datetime'].unique()
     flow_device_id = sensor_model_id('flow')
 
+    # compute zonal flow balance
     if demand_resolution == 'dma':
-
         with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
             flow_balance = json.load(f)
 
     elif demand_resolution == 'wwmd':
-
         with open(NETWORK_DIR / 'flow_balance_wwmd.json') as f:
             flow_balance = json.load(f)
-
-            # # check if all wastemeters are present in flow data
-            # for zone in flow_balance.keys():
-            #     if f"wastemeter_{zone}" not in flow_df['bwfl_id'].unique():
-            #         print(f"Error: Wastemeter district {zone} not present in flow data.  Using DMA resolution instead.")
-            #         demand_resolution = 'dma'
-            #         break
-            # if demand_resolution == 'dma':
-            #     with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
-            #         flow_balance = json.load(f)
 
     inflow_df = pd.DataFrame({'datetime': pd.to_datetime(datetime)}).set_index('datetime')
 
     for key, values in flow_balance.items():
+        print(key)
         inflow_sum = pd.Series(0, index=inflow_df.index)
         for sensor in values['flow_in']:
             inflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
@@ -242,10 +232,79 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
             outflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
         
         inflow_df[key] = inflow_sum - outflow_sum
+
+    ##### REMOVE KNOWN FLUSHING DEMANDS FROM INFLOW_DF #####
+
+    # scale demands
+    junction_names = wn.junction_name_list
+    node_mapping = pd.read_excel(NETWORK_DIR / 'InfoWorks_to_EPANET_mapping.xlsx', sheet_name='Nodes')
+    demand_df = pd.DataFrame({'node_id': junction_names, 'dma_id': None, 'wwmd_id': None, 'base_demand': 0.0, 'old_pattern': None})
+
+    for name in junction_names:
+
+        junction = wn.get_node(name)
+        base_demand = 0
+        patterns = []
+
+        for idx in range(len(junction.demand_timeseries_list)):
+            try:
+                patt_name = junction.demand_timeseries_list[idx].pattern_name
+                if patt_name is not None:
+                    patterns.append(junction.demand_timeseries_list[idx].pattern_name)
+                    base_demand += junction.demand_timeseries_list[idx].base_value
+                else:
+                    junction.demand_timeseries_list[idx].base_value = 0
+                    junction.demand_timeseries_list[idx].pattern_name = None
+            except:
+                patterns.append([None])
+
+        if patterns:
+            demand_df.loc[demand_df['node_id'] == name, 'old_pattern'] = patterns[0]
+        else:
+            demand_df.loc[demand_df['node_id'] == name, 'old_pattern'] = None
+
+        demand_df.loc[demand_df['node_id'] == name, 'base_demand'] = base_demand
+        demand_df.loc[demand_df['node_id'] == name, 'dma_id'] = str(node_mapping[node_mapping['EPANET Node ID'] == name]['DMA ID'].values[0])
+        demand_df.loc[demand_df['node_id'] == name, 'wwmd_id'] = str(node_mapping[node_mapping['EPANET Node ID'] == name]['WWMD ID'].values[0])
+
+    scale_df = pd.DataFrame(index=inflow_df.index, columns=flow_balance.keys())
+
+    for key in flow_balance.keys():
+
+        if demand_resolution == 'dma':
+            total_base_demand = demand_df[demand_df['dma_id'] == key]['base_demand'].sum() * 1000
+        elif demand_resolution == 'wwmd':
+            total_base_demand = demand_df[demand_df['wwmd_id'] == str(key)]['base_demand'].sum() * 1000
+
+        if total_base_demand > 0:
+            scale_df[key] = inflow_df[key] / total_base_demand
+        else:
+            scale_df[key] = 0
+
+    for name, col in scale_df.items():
+        if not np.isnan(col.iloc[0]):
+            wn.add_pattern(name, col.values)
+
+    print(wn.pattern_name_list)
+
+    for idx, name in enumerate(junction_names):
+        junction = wn.get_node(name)
+        if demand_resolution == 'dma':
+            new_patt = demand_df[demand_df['node_id'] == name]['dma_id'].values[0]
+        elif demand_resolution == 'wwmd':
+            new_patt = demand_df[demand_df['node_id'] == name]['wwmd_id'].values[0]
+        base = demand_df[demand_df['node_id'] == name]['base_demand'].values[0]
     
-    print(inflow_df)
+        if new_patt in wn.pattern_name_list:
+            while len(junction.demand_timeseries_list) < 2:
+                junction.add_demand(0.0, None)
+            junction.demand_timeseries_list[0].pattern_name = None
+            junction.demand_timeseries_list[0].base_value = 0.0
+            junction.demand_timeseries_list[1].pattern_name = new_patt
+            junction.demand_timeseries_list[1].base_value = base
 
 
+    ##### ADD KNOWN FLUSHING DEMANDS AS ADDITIONAL DEMAND #####
 
     return wn
 
