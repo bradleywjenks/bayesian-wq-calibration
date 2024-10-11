@@ -368,7 +368,7 @@ def get_dbv_settings(wn, flow_df, pressure_df, dbv_links):
         dbv_flow = flow_df[flow_df['bwfl_id'] == dbv_bwfl_id]['mean'].values / 1000 # convert to cms
 
         dbv_diam = wn.get_link(link).diameter
-        dbv_value = (abs(start_pressure - end_pressure) * 2 * 9.81 * np.pi**2 * dbv_diam) / (abs(dbv_flow)**2 * 4**2)
+        dbv_value = (abs(start_pressure - end_pressure) * 2 * 9.81 * np.pi**2 * dbv_diam**4) / (abs(dbv_flow)**2 * 4**2)
         dbv_value = np.minimum(dbv_value, IV_CLOSE)
         dbv_value = np.maximum(dbv_value, IV_OPEN)
 
