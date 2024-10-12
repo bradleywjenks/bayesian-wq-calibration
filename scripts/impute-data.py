@@ -88,20 +88,6 @@ value_columns = ['min', 'mean', 'max']
 for col in value_columns:
     flow_df.loc[~flow_df['bwfl_id'].isin(bwfl_ids_to_exclude) & (flow_df[col] == 0), col] = np.nan
 
-# fig = px.line(
-#     flow_df,
-#     x='datetime',
-#     y='mean',
-#     color='bwfl_id',
-# )
-# fig.update_layout(
-#     xaxis_title='',
-#     yaxis_title='Flow [L/s]',
-#     legend_title_text='',
-#     template='simple_white',
-#     height=450,
-# )
-# fig.show()
 
 
 # check missing data
@@ -135,11 +121,11 @@ if args.method == 'mean':
 
     value_columns = ['min', 'mean', 'max']
     # flow data
-    grouped_flow = flow_impute_df.groupby(['bwfl_id', 'time', 'dayofweek', 'quarter'])[value_columns]
+    grouped_flow = flow_impute_df.groupby(['bwfl_id', 'time', 'dayofweek'])[value_columns]
     flow_impute_df[value_columns] = grouped_flow.transform(lambda x: x.fillna(x.mean()))
 
     # boundary pressure data
-    grouped_pressure = pressure_impute_df.groupby(['bwfl_id', 'time', 'dayofweek', 'quarter'])[value_columns]
+    grouped_pressure = pressure_impute_df.groupby(['bwfl_id', 'time', 'dayofweek'])[value_columns]
     pressure_impute_df[value_columns] = grouped_pressure.transform(lambda x: x.fillna(x.mean()))
 
 
