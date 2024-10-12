@@ -1,1 +1,3 @@
-Describe data files here...
+Run `scripts/impute-data.py` to impute missing flow and boundary head data. This script has input argument `--method`, which can be set to 'mean' (default) or 'knn'. 
+
+Then run `scripts/process-data.py` to extract flow, pressure, and cleansed water quality data for each testing period. This script has input argument '--n_days', which sets the number of testing period days after water quality sensor calibration. The default is set to 7 days. 

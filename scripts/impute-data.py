@@ -12,6 +12,7 @@ import argparse
 import json
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import LabelEncoder
+import plotly.express as px
 
 
 # pass script arguments
@@ -87,6 +88,21 @@ value_columns = ['min', 'mean', 'max']
 for col in value_columns:
     flow_df.loc[~flow_df['bwfl_id'].isin(bwfl_ids_to_exclude) & (flow_df[col] == 0), col] = np.nan
 
+# fig = px.line(
+#     flow_df,
+#     x='datetime',
+#     y='mean',
+#     color='bwfl_id',
+# )
+# fig.update_layout(
+#     xaxis_title='',
+#     yaxis_title='Flow [L/s]',
+#     legend_title_text='',
+#     template='simple_white',
+#     height=450,
+# )
+# fig.show()
+
 
 # check missing data
 for sensor in pressure_df['bwfl_id'].unique():
@@ -103,21 +119,36 @@ flow_impute_df['time'] = flow_impute_df['datetime'].dt.strftime('%H:%M')
 flow_impute_df['time'] = flow_impute_df['datetime'].dt.hour.astype(float) + flow_impute_df['datetime'].dt.minute.astype(float) / 60
 flow_impute_df['time'] = (flow_impute_df['time'] * 4).round() / 4
 flow_impute_df['dayofweek'] = flow_impute_df['datetime'].dt.dayofweek.astype(float)
-flow_impute_df["month"] = flow_impute_df["datetime"].dt.month
+flow_impute_df["quarter"] = flow_impute_df["datetime"].dt.quarter
 # flow_impute_df["year"] = flow_impute_df["datetime"].dt.year
+
+# impute missing pressure data
+pressure_impute_df = pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)'])].copy()
+pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.strftime('%H:%M')
+pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.hour.astype(float) + pressure_impute_df['datetime'].dt.minute.astype(float) / 60
+pressure_impute_df['time'] = (pressure_impute_df['time'] * 4).round() / 4
+pressure_impute_df['dayofweek'] = pressure_impute_df['datetime'].dt.dayofweek.astype(float)
+pressure_impute_df["quarter"] = pressure_impute_df["datetime"].dt.quarter
 
 
 if args.method == 'mean':
+
     value_columns = ['min', 'mean', 'max']
-    grouped = flow_impute_df.groupby(['bwfl_id', 'time', 'dayofweek', 'month'])[value_columns]
-    flow_impute_df[value_columns] = grouped.transform(lambda x: x.fillna(x.mean()))
+    # flow data
+    grouped_flow = flow_impute_df.groupby(['bwfl_id', 'time', 'dayofweek', 'quarter'])[value_columns]
+    flow_impute_df[value_columns] = grouped_flow.transform(lambda x: x.fillna(x.mean()))
+
+    # boundary pressure data
+    grouped_pressure = pressure_impute_df.groupby(['bwfl_id', 'time', 'dayofweek', 'quarter'])[value_columns]
+    pressure_impute_df[value_columns] = grouped_pressure.transform(lambda x: x.fillna(x.mean()))
+
 
 elif args.method == 'knn':
     for sensor in flow_df['bwfl_id'].unique():
         print(f"Imputing sensor: {sensor}")
         temp_df = flow_impute_df[flow_impute_df['bwfl_id'] == sensor].drop(columns=['datetime', 'bwfl_id', 'dma_id', 'wwmd_id']).copy()
         print(temp_df)
-        impute_features = ['time', 'dayofweek', 'min', 'mean', 'max']
+        impute_features = ['time', 'dayofweek', 'quarter', 'min', 'mean', 'max']
         knn_imputer = KNNImputer(n_neighbors=3)
         imputed_array = knn_imputer.fit_transform(temp_df[impute_features])
         temp_df_imputed = pd.DataFrame(imputed_array, columns=impute_features)
@@ -126,15 +157,39 @@ elif args.method == 'knn':
 else:
     raise ValueError(f"Invalid imputation method: {args.method}")
 
-# bound minimum maximum values from data imputer
-max_values = flow_df[['min', 'mean', 'max']].max()
-min_vales = flow_df[['min', 'mean', 'max']].min()
-flow_impute_df['min'] = flow_impute_df['min'].clip(upper=max_values['min'], lower=min_vales['min'])
-flow_impute_df['mean'] = flow_impute_df['mean'].clip(upper=max_values['mean'], lower=min_vales['mean'])
-flow_impute_df['max'] = flow_impute_df['max'].clip(upper=max_values['max'], lower=min_vales['max'])
 
 flow_df[value_columns] = flow_impute_df[value_columns]
+pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)']), value_columns] = pressure_impute_df[value_columns]
 
+fig = px.line(
+    flow_df,
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Flow [L/s]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
+
+fig = px.line(
+    pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)'])],
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Flow [L/s]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
 
 # save imputed date to zip folder
 with zip.ZipFile(TIMESERIES_DIR / 'imputed/field_lab-data-2021-2024.zip', 'w') as z:

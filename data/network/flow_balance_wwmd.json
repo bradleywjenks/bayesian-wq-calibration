@@ -1,5 +1,5 @@
 {"2301_2303" : {
-    "flow_in" : ["inlet_2005", "wastemeter_2303"],
+    "flow_in" : ["inlet_2005"],
     "flow_out" : ["wastemeter_2332", "Lodge Causeway PRV", "New Station Way DBV"]
 },
 "2332" : {
@@ -22,16 +22,12 @@
     "flow_in" : ["wastemeter_8315"],
     "flow_out" : []
 },
-"2297" : {
-    "flow_in" : ["wastemeter_2297"],
-    "flow_out" : ["wastemeter_2287"]
+"2296" : {
+    "flow_in" : ["inlet_2296"],
+    "flow_out" : ["Stoke Lane PRV", "wastemeter_2287"]
 },
 "2287" : {
     "flow_in" : ["wastemeter_2287"],
     "flow_out" : []
-},
-"2296" : {
-    "flow_in" : ["inlet_2296"],
-    "flow_out" : ["Stoke Lane PRV", "wastemeter_2297"]
 }
 }
