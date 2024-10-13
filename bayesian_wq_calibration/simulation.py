@@ -35,10 +35,10 @@ def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_r
     wn = scale_demand(wn, flow_df, demand_resolution, flush_data) # NB: remove flushing demands from demand scaling
 
     # 5. assign time information:
-    datetime = flow_df['datetime'].unique()
-    wn = set_simulation_time(wn, datetime)
+    wn = set_simulation_time(wn, flow_df)
 
-    # 6. assign input chlorine values, if chemical simulation selected
+    # 6. set water quality simulation
+    wn = set_wq_simulation(wn, sim_type, wq_df)
 
     # 7. output results as structure
     sim_results = epanet_simulator(wn, sim_type)
@@ -53,8 +53,9 @@ def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_r
     Helper functions to main model simulation function
 """
 
-def set_simulation_time(wn, datetime):
+def set_simulation_time(wn, flow_df):
 
+    datetime = flow_df['datetime'].unique()
     datetime = pd.to_datetime(datetime)
     time_step = (datetime[1] - datetime[0]).total_seconds()
     total_duration = (datetime.max() - datetime.min()).total_seconds()
@@ -84,11 +85,26 @@ def epanet_simulator(wn, sim_type):
     sim_results.head = results.node['head']
 
     if sim_type == 'age':
-        sim_results.age = results.node['age']
+        sim_results.age = results.node['quality'] / 3600 # convert to hours
     elif sim_type == 'chlorine':
-        sim_results.chlorine = results.node['chlorine']
+        sim_results.chlorine = results.node['quality']
 
     return sim_results
+
+
+
+def set_wq_simulation(wn, sim_type, wq_df):
+
+    if sim_type == 'age':
+        wn.options.quality.parameter = "AGE"
+    elif sim_type == 'chlorine':
+        wn.options.quality.parameter = "CHEMICAL"
+        # wn = set_source_cl(wn, network, wq_df)
+        # wn = set_reaction_parameters(wn, ...)
+        # wn.options.reaction.bulk_coeff = (-0.75/3600/24) # units = 1/second (GET FROM BW)
+        # wn.options.reaction.wall_coeff = (-0.02/3600/24) # units = 1/second
+
+    return wn
 
 
 
