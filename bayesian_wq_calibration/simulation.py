@@ -212,30 +212,36 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
     flow_device_id = sensor_model_id('flow')
 
     # compute zonal flow balance
-    if demand_resolution == 'dma':
-        with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
-            flow_balance = json.load(f)
-
-    elif demand_resolution == 'wwmd':
-        with open(NETWORK_DIR / 'flow_balance_wwmd.json') as f:
-            flow_balance = json.load(f)
-
-        # check if any flow meters have NaN values
-
     inflow_df = pd.DataFrame({'datetime': pd.to_datetime(datetime)}).set_index('datetime')
+    has_nan = True
 
-    for key, values in flow_balance.items():
-        print(key)
-        inflow_sum = pd.Series(0, index=inflow_df.index)
-        for sensor in values['flow_in']:
-            inflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
-        outflow_sum = pd.Series(0, index=inflow_df.index)
-        for sensor in values['flow_out']:
-            outflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
-        
-        inflow_df[key] = inflow_sum - outflow_sum
+    while has_nan:
+
+        if demand_resolution == 'dma':
+            with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
+                flow_balance = json.load(f)
+        elif demand_resolution == 'wwmd':
+            with open(NETWORK_DIR / 'flow_balance_wwmd.json') as f:
+                flow_balance = json.load(f)
+
+        for key, values in flow_balance.items():
+            inflow_sum = pd.Series(0, index=inflow_df.index)
+            for sensor in values['flow_in']:
+                inflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
+            outflow_sum = pd.Series(0, index=inflow_df.index)
+            for sensor in values['flow_out']:
+                outflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
+            
+            inflow_df[key] = inflow_sum - outflow_sum
+            has_nan = inflow_df[key].isna().any()
+            if has_nan:
+                demand_resolution = 'dma'
+                print(f"Significant periods of missing data for {demand_resolution} demand resolution. Switching to {demand_resolution}demand resolution")
+                break
+
 
     ##### REMOVE KNOWN FLUSHING DEMANDS FROM INFLOW_DF #####
+    # insert code here...
 
     # scale demands
     junction_names = wn.junction_name_list
@@ -287,8 +293,6 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
         if not np.isnan(col.iloc[0]):
             wn.add_pattern(name, col.values)
 
-    print(wn.pattern_name_list)
-
     for idx, name in enumerate(junction_names):
         junction = wn.get_node(name)
         if demand_resolution == 'dma':
@@ -307,6 +311,7 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
 
 
     ##### ADD KNOWN FLUSHING DEMANDS AS ADDITIONAL DEMAND #####
+    # insert code here...
 
     return wn
 
