@@ -42,8 +42,6 @@ flow_df['datetime'] = pd.to_datetime(flow_df['datetime'])
 wq_df['datetime'] = pd.to_datetime(wq_df['datetime'])
 
 
-
-
 # ensure dataframe size is correct
 def fill_missing_rows(df, datetime_col, freq, id_cols):
 
@@ -87,12 +85,12 @@ wq_df = fill_missing_rows(
 )
 
 
-#  treat zero data points as NaNs for specific bwfl_ids
-bwfl_ids_to_exclude = ['wastemeter_2307', 'wastemeter_2308']
-value_columns = ['min', 'mean', 'max']
-for col in value_columns:
-    flow_df.loc[~flow_df['bwfl_id'].isin(bwfl_ids_to_exclude) & (flow_df[col] == 0), col] = np.nan
+#  drop outlier flow data
+for sensor in flow_df['bwfl_id'].unique():
+    outlier_thresh_high = flow_df[flow_df['bwfl_id'] == sensor]['mean'].quantile(0.995)
+    outlier_thresh_low = flow_df[flow_df['bwfl_id'] == sensor]['mean'].quantile(0.005)
 
+    flow_df.loc[(flow_df['bwfl_id'] == sensor) & ((flow_df['mean'] == 0) | (flow_df['mean'] >= outlier_thresh_high) | (flow_df['mean'] <= outlier_thresh_low)), ['min', 'mean', 'max']] = np.nan
 
 
 # check missing data
@@ -122,10 +120,11 @@ pressure_impute_df['dayofweek'] = pressure_impute_df['datetime'].dt.dayofweek.as
 pressure_impute_df['quarter'] = pressure_impute_df['datetime'].dt.quarter
 pressure_impute_df['year'] = pressure_impute_df['datetime'].dt.year
 
+value_columns = ['min', 'mean', 'max']
+
 
 if args.method == 'mean':
 
-    value_columns = ['min', 'mean', 'max']
     # flow data
     grouped_flow = flow_impute_df.groupby(['bwfl_id', 'time', 'dayofweek', 'year'])[value_columns]
     flow_impute_df[value_columns] = grouped_flow.transform(lambda x: x.fillna(x.mean()))
@@ -136,19 +135,29 @@ if args.method == 'mean':
 
 
 elif args.method == 'knn':
-    for sensor in flow_df['bwfl_id'].unique():
-        print(f"Imputing sensor: {sensor}")
-        temp_df = flow_impute_df[flow_impute_df['bwfl_id'] == sensor].drop(columns=['datetime', 'bwfl_id', 'dma_id', 'wwmd_id']).copy()
-        print(temp_df)
-        impute_features = ['time', 'dayofweek', 'year', 'min', 'mean', 'max']
-        knn_imputer = KNNImputer(n_neighbors=3)
-        imputed_array = knn_imputer.fit_transform(temp_df[impute_features])
-        temp_df_imputed = pd.DataFrame(imputed_array, columns=impute_features)
-        flow_impute_df.loc[flow_impute_df['bwfl_id'] == sensor, ['min', 'mean', 'max']] = temp_df_imputed[['min', 'mean', 'max']]
+
+    n_neighbors = 5
+    knn_imputer = KNNImputer(n_neighbors=n_neighbors)
+    imputed_columns = ['time', 'dayofweek', 'year', 'min', 'mean', 'max']
+
+    # flow data
+    for sensor in flow_impute_df['bwfl_id'].unique():
+        print(f"Imputing data for sensor {sensor}...")
+        temp_df = flow_impute_df[flow_impute_df['bwfl_id'] == sensor][imputed_columns].copy()
+        imputed_array = knn_imputer.fit_transform(temp_df)
+        imputed_df = pd.DataFrame(imputed_array, columns=imputed_columns)
+        flow_impute_df.loc[flow_impute_df[flow_impute_df['bwfl_id'] == sensor].index, value_columns] = imputed_df[value_columns].values
+
+    # boundary pressure data
+    for sensor in pressure_impute_df['bwfl_id'].unique():
+        print(f"Imputing data for sensor {sensor}...")
+        temp_df = pressure_impute_df[pressure_impute_df['bwfl_id'] == sensor][imputed_columns].copy()
+        imputed_array = knn_imputer.fit_transform(temp_df)
+        imputed_df = pd.DataFrame(imputed_array, columns=imputed_columns)
+        pressure_impute_df.loc[pressure_impute_df[pressure_impute_df['bwfl_id'] == sensor].index, value_columns] = imputed_df[value_columns].values
 
 else:
     raise ValueError(f"Invalid imputation method: {args.method}")
-
 
 flow_df[value_columns] = flow_impute_df[value_columns]
 pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)']), value_columns] = pressure_impute_df[value_columns]
@@ -176,7 +185,7 @@ fig = px.line(
 )
 fig.update_layout(
     xaxis_title='',
-    yaxis_title='Flow [L/s]',
+    yaxis_title='Pressure [m]',
     legend_title_text='',
     template='simple_white',
     height=450,

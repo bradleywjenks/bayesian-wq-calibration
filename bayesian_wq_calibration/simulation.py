@@ -13,6 +13,7 @@ class SimResults:
         self.head = None
         self.chlorine = None
         self.age = None
+        self.demand = None
 
 
 """"
@@ -403,3 +404,17 @@ def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
         prv_settings[idx] = pressure
 
     return prv_settings
+
+
+
+
+
+
+""""
+    Function for computing residence time between DMA inlets and water quality sensors 
+"""
+def compute_residence_time():
+
+    # insert code here...9O
+
+    return None
