@@ -426,11 +426,11 @@ def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
 
 
 
-""""
-    Function for computing residence time between DMA inlets and water quality sensors 
-"""
-def compute_residence_time():
+# """"
+#     Function for computing residence time between DMA inlets and water quality sensors 
+# """
+# def compute_residence_time(pressure_df, flow_df, demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, flush_data=None):
 
-    # insert code here...9O
+#     # insert code here...9O
 
-    return None
+#     return None

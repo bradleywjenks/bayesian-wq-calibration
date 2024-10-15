@@ -39,50 +39,50 @@ with zip.ZipFile(TIMESERIES_DIR / 'raw/field_lab-data-2021-2024.zip', 'r') as z:
                
 pressure_df['datetime'] = pd.to_datetime(pressure_df['datetime'])
 flow_df['datetime'] = pd.to_datetime(flow_df['datetime'])
-wq_df['datetime'] = pd.to_datetime(wq_df['datetime'])
+wq_df['datetime'] = pd.to_datetime(wq_df['datetime'], format='mixed')
 
 
 # ensure dataframe size is correct
-def fill_missing_rows(df, datetime_col, freq, id_cols):
+def fill_missing_rows(df, min_datetime, max_datetime):
 
-    min_datetime = df[datetime_col].min()
-    max_datetime = df[datetime_col].max()
-    complete_datetime_range = pd.date_range(start=min_datetime, end=max_datetime, freq=freq)
+    complete_datetime_range = pd.date_range(start=min_datetime, end=max_datetime, freq='15min')
 
     bwfl_ids = df['bwfl_id'].unique()
     if 'data_type' in df.columns:
         data_type = df['data_type'].unique()
-        complete_df = pd.MultiIndex.from_product([complete_datetime_range, bwfl_ids, data_type], names=[datetime_col, 'bwfl_id', 'data_type']).to_frame(index=False)
-        merged_df = pd.merge(complete_df, df, on=[datetime_col, 'bwfl_id', 'data_type'], how='left')
+        complete_df = pd.MultiIndex.from_product([complete_datetime_range, bwfl_ids, data_type], names=['datetime', 'bwfl_id', 'data_type']).to_frame(index=False)
+        merged_df = pd.merge(complete_df, df, on=['datetime', 'bwfl_id', 'data_type'], how='left')
     else:
-        complete_df = pd.MultiIndex.from_product([complete_datetime_range, bwfl_ids], names=[datetime_col, 'bwfl_id']).to_frame(index=False)
-        merged_df = pd.merge(complete_df, df, on=[datetime_col, 'bwfl_id'], how='left')
+        complete_df = pd.MultiIndex.from_product([complete_datetime_range, bwfl_ids], names=['datetime', 'bwfl_id']).to_frame(index=False)
+        merged_df = pd.merge(complete_df, df, on=['datetime', 'bwfl_id'], how='left')
 
-    for col in id_cols:
+    for col in ['dma_id', 'wwmd_id']:
         merged_df[col] = merged_df.groupby('bwfl_id')[col].transform('first')
 
     return merged_df
 
+min_datetime = min(pressure_df['datetime'].min(), flow_df['datetime'].min(), wq_df['datetime'].min())
+max_datetime = max(pressure_df['datetime'].max(), flow_df['datetime'].max(), wq_df['datetime'].max())
+
 pressure_df = fill_missing_rows(
     pressure_df, 
-    datetime_col='datetime', 
-    freq='15min', 
-    id_cols=['dma_id', 'wwmd_id']
+    min_datetime=min_datetime,
+    max_datetime=max_datetime,
 )
 
 flow_df = fill_missing_rows(
     flow_df, 
-    datetime_col='datetime', 
-    freq='15min', 
-    id_cols=['dma_id', 'wwmd_id']
+    min_datetime=min_datetime,
+    max_datetime=max_datetime,
 )
 
 wq_df = fill_missing_rows(
     wq_df, 
-    datetime_col='datetime', 
-    freq='15min', 
-    id_cols=['dma_id', 'wwmd_id']
+    min_datetime=min_datetime,
+    max_datetime=max_datetime,
 )
+
+print(wq_df)
 
 
 #  drop outlier flow data
@@ -186,6 +186,21 @@ fig = px.line(
 fig.update_layout(
     xaxis_title='',
     yaxis_title='Pressure [m]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
+
+fig = px.line(
+    wq_df[wq_df['data_type'] == 'chlorine'],
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Chlorine [mg/L]',
     legend_title_text='',
     template='simple_white',
     height=450,
