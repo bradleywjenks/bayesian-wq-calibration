@@ -61,8 +61,8 @@ def fill_missing_rows(df, min_datetime, max_datetime):
 
     return merged_df
 
-min_datetime = flow_df['datetime'].min() # use min flow datetime
-max_datetime = max(pressure_df['datetime'].max(), flow_df['datetime'].max(), wq_df['datetime'].max())
+min_datetime = flow_df['datetime'].min()
+max_datetime = flow_df['datetime'].max()
 
 pressure_df = fill_missing_rows(
     pressure_df, 
@@ -81,8 +81,6 @@ wq_df = fill_missing_rows(
     min_datetime=min_datetime,
     max_datetime=max_datetime,
 )
-
-print(wq_df)
 
 
 #  drop outlier flow data
@@ -162,50 +160,54 @@ else:
 flow_df[value_columns] = flow_impute_df[value_columns]
 pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)']), value_columns] = pressure_impute_df[value_columns]
 
-fig = px.line(
-    flow_df,
-    x='datetime',
-    y='mean',
-    color='bwfl_id',
-)
-fig.update_layout(
-    xaxis_title='',
-    yaxis_title='Flow [L/s]',
-    legend_title_text='',
-    template='simple_white',
-    height=450,
-)
-fig.show()
+print(flow_df)
+print(pressure_df)
+print(wq_df)
 
-fig = px.line(
-    pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)'])],
-    x='datetime',
-    y='mean',
-    color='bwfl_id',
-)
-fig.update_layout(
-    xaxis_title='',
-    yaxis_title='Pressure [m]',
-    legend_title_text='',
-    template='simple_white',
-    height=450,
-)
-fig.show()
+# fig = px.line(
+#     flow_df,
+#     x='datetime',
+#     y='mean',
+#     color='bwfl_id',
+# )
+# fig.update_layout(
+#     xaxis_title='',
+#     yaxis_title='Flow [L/s]',
+#     legend_title_text='',
+#     template='simple_white',
+#     height=450,
+# )
+# fig.show()
 
-fig = px.line(
-    wq_df[wq_df['data_type'] == 'chlorine'],
-    x='datetime',
-    y='mean',
-    color='bwfl_id',
-)
-fig.update_layout(
-    xaxis_title='',
-    yaxis_title='Chlorine [mg/L]',
-    legend_title_text='',
-    template='simple_white',
-    height=450,
-)
-fig.show()
+# fig = px.line(
+#     pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)'])],
+#     x='datetime',
+#     y='mean',
+#     color='bwfl_id',
+# )
+# fig.update_layout(
+#     xaxis_title='',
+#     yaxis_title='Pressure [m]',
+#     legend_title_text='',
+#     template='simple_white',
+#     height=450,
+# )
+# fig.show()
+
+# fig = px.line(
+#     wq_df[wq_df['data_type'] == 'chlorine'],
+#     x='datetime',
+#     y='mean',
+#     color='bwfl_id',
+# )
+# fig.update_layout(
+#     xaxis_title='',
+#     yaxis_title='Chlorine [mg/L]',
+#     legend_title_text='',
+#     template='simple_white',
+#     height=450,
+# )
+# fig.show()
 
 # save imputed date to zip folder
 with zip.ZipFile(TIMESERIES_DIR / 'imputed/field_lab-data-2021-2024.zip', 'w') as z:
