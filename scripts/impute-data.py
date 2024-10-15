@@ -61,7 +61,7 @@ def fill_missing_rows(df, min_datetime, max_datetime):
 
     return merged_df
 
-min_datetime = min(pressure_df['datetime'].min(), flow_df['datetime'].min(), wq_df['datetime'].min())
+min_datetime = flow_df['datetime'].min() # use min flow datetime
 max_datetime = max(pressure_df['datetime'].max(), flow_df['datetime'].max(), wq_df['datetime'].max())
 
 pressure_df = fill_missing_rows(
