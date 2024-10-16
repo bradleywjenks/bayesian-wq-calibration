@@ -1,5 +1,5 @@
 """
-This script outputs flow, pressure, and wq time series data for a period of N days after each metrinet sensor calibration date.
+This script outputs flow, pressure, and wq time series data for a period of n_days after each metrinet sensor calibration event.
 """
 
 import pandas as pd
@@ -10,8 +10,6 @@ from pathlib import Path
 import argparse
 import json
 from bayesian_wq_calibration.constants import TIMESERIES_DIR
-from sklearn.impute import KNNImputer
-from sklearn.preprocessing import LabelEncoder
 
 
 # pass script arguments
@@ -21,7 +19,6 @@ args = parser.parse_args()
 
 
 # get good data periods
-
 calibration_data = pd.read_excel(TIMESERIES_DIR / 'raw/metrinet-calibration-records.xlsx')
 if 'good_datetime' not in calibration_data.columns:
    raise ValueError("The specified file must contain a 'datetime' column.")
@@ -37,8 +34,6 @@ for idx, cal_date in calibration_dates.items():
        'end_date': end_date
    }
 
-
-print(good_data)
 
 keys_to_delete = []
 for idx, cal_date in calibration_dates.items():
@@ -82,6 +77,7 @@ wq_df['datetime'] = pd.to_datetime(wq_df['datetime'])
 
 # process time series data
 output_dir = TIMESERIES_DIR / 'processed/'
+value_columns = ['min', 'mean', 'max']
 
 for idx, period in good_data.items():
 
@@ -89,75 +85,121 @@ for idx, period in good_data.items():
    filtered_flow_df = flow_df[(flow_df['datetime'] >= period['start_date']) & (flow_df['datetime'] <= period['end_date'])]
    filtered_wq_df = wq_df[(wq_df['datetime'] >= period['start_date']) & (wq_df['datetime'] <= period['end_date'])]
 
-   # hard-coded chlorine data modifications...
-   if idx == 4:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_2', 'chlorine'] = np.nan
+   # hard-coded chlorine data modifications
+   if idx == 1:
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+   elif idx == 2:
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+   elif idx == 3:
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+   elif idx == 4:
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+   elif idx == 5:
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+   elif idx == 6:
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 7:
       filtered_pressure_df = pressure_df[(pressure_df['datetime'] >= period['start_date']) & (pressure_df['datetime'] <= pd.to_datetime('2023-01-29 06:00:00'))]
       filtered_flow_df = flow_df[(flow_df['datetime'] >= period['start_date']) & (flow_df['datetime'] <= pd.to_datetime('2023-01-29 06:00:00'))]
       filtered_wq_df = wq_df[(wq_df['datetime'] >= period['start_date']) & (wq_df['datetime'] <= pd.to_datetime('2023-01-29 06:00:00'))]
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW5') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 8:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_1', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 9:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 10:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 11:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 12:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 13:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[(filtered_wq_df['bwfl_id'] == 'BW2') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-04-04 11:00:00')), 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW2') & (filtered_wq_df['data_type'] == 'chlorine') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-04-04 11:00:00'))].index, inplace=True)
    elif idx == 14:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 15:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW3', 'chlorine'] = np.nan
-      filtered_wq_df.loc[(filtered_wq_df['bwfl_id'] == 'BW7') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-05-31 08:30:00')) & (filtered_wq_df['datetime'] <= pd.to_datetime('2024-06-03 09:45:00')), 'chlorine'] = np.nan
-      filtered_wq_df.loc[(filtered_wq_df['bwfl_id'] == 'BW6') & (filtered_wq_df['datetime'] <= pd.to_datetime('2024-06-03 23:15:00')), 'chlorine'] = np.nan
-      filtered_wq_df.loc[(filtered_wq_df['bwfl_id'] == 'BW5') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-06-03 08:45:00')), 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW3') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW7') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-05-31 08:30:00')) & (filtered_wq_df['datetime'] <= pd.to_datetime('2024-06-03 09:45:00'))].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW6') & (filtered_wq_df['datetime'] <= pd.to_datetime('2024-06-03 23:15:00'))].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW5') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-06-03 08:45:00'))].index, inplace=True)
    elif idx == 16:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW5', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW5') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 17:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_1', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 18:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_1', 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
    elif idx == 19:
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW9_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW4_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW12_1', 'chlorine'] = np.nan
-      filtered_wq_df.loc[filtered_wq_df['bwfl_id'] == 'BW1_2', 'chlorine'] = np.nan
-      filtered_wq_df.loc[(filtered_wq_df['bwfl_id'] == 'BW7') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-09-26 17:30:00')), 'chlorine'] = np.nan
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW9_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW4_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_1') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
+      filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW7') & (filtered_wq_df['data_type'] == 'chlorine') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-09-26 17:30:00'))].index, inplace=True)
 
+   filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'].isin(['BW1_2', 'BW12_2', 'BW4_2', 'BW9_2'])) & (filtered_wq_df['data_type'] != 'chlorine')].index,inplace=True)
+
+   filtered_wq_df['bwfl_id'] = filtered_wq_df['bwfl_id'].str.split('_').str[0]
+
+   
    # export to csv files
    if not filtered_wq_df.empty:
       filtered_pressure_df.to_csv(output_dir / f"{str(idx).zfill(2)}-pressure.csv", index=False)
