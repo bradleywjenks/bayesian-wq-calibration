@@ -7,12 +7,14 @@ import datetime
 
 class SimResults:
     def __init__(self):
+        self.datetime = None
         self.flow = None
         self.velocity = None
         self.pressure = None
         self.head = None
         self.chlorine = None
         self.age = None
+        self.trace = None
         self.demand = None
 
 
@@ -38,10 +40,10 @@ def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_r
     wn = set_simulation_time(wn, flow_df)
 
     # 6. set water quality simulation
-    wn = set_wq_simulation(wn, sim_type, wq_df)
+    wn = set_wq_simulation(wn, sim_type, wq_df, trace_node)
 
     # 7. output results as structure
-    sim_results = epanet_simulator(wn, sim_type)
+    sim_results = epanet_simulator(wn, sim_type, flow_df)
 
     return sim_results
 
@@ -74,11 +76,12 @@ def set_simulation_time(wn, flow_df):
 
 
 
-def epanet_simulator(wn, sim_type):
+def epanet_simulator(wn, sim_type, flow_df):
 
     wn.convert_controls_to_rules(priority=3)
     results = wntr.sim.EpanetSimulator(wn).run_sim()
     sim_results = SimResults()
+    sim_results.datetime = flow_df['datetime'].unique()
     sim_results.flow = results.link['flowrate'] * 1000 # convert to Lps
     sim_results.velocity = results.link['velocity']
     sim_results.pressure = results.node['pressure']
@@ -88,12 +91,14 @@ def epanet_simulator(wn, sim_type):
         sim_results.age = results.node['quality'] / 3600 # convert to hours
     elif sim_type == 'chlorine':
         sim_results.chlorine = results.node['quality']
+    elif sim_type == 'trace':
+        sim_results.trace = results.node['quality']
 
     return sim_results
 
 
 
-def set_wq_simulation(wn, sim_type, wq_df):
+def set_wq_simulation(wn, sim_type, wq_df, trace_node):
 
     if sim_type == 'age':
         wn.options.quality.parameter = "AGE"
@@ -103,6 +108,12 @@ def set_wq_simulation(wn, sim_type, wq_df):
         # wn = set_reaction_parameters(wn, ...)
         # wn.options.reaction.bulk_coeff = (-0.75/3600/24) # units = 1/second (GET FROM BW)
         # wn.options.reaction.wall_coeff = (-0.02/3600/24) # units = 1/second
+    elif sim_type == 'trace' and trace_node is not None:
+        wn.options.quality.parameter = 'TRACE'
+        if trace_node in wn.reservoir_name_list:
+            wn.options.quality.trace_node = trace_node
+        else:
+            print(f"Error. {trace_node} is not a reservoir.")
 
     return wn
 
