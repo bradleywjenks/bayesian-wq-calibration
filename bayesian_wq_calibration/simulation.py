@@ -22,7 +22,7 @@ class SimResults:
     Main model simulation function using EPANET solver
 """
 
-def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, flush_data=None):
+def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, wall_grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.55, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -40,7 +40,7 @@ def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_r
     wn = set_simulation_time(wn, flow_df)
 
     # 6. set water quality simulation
-    wn = set_wq_simulation(wn, sim_type, wq_df, trace_node)
+    wn = set_wq_simulation(wn, sim_type, wq_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff)
 
     # 7. output results as structure
     sim_results = epanet_simulator(wn, sim_type, flow_df)
@@ -97,16 +97,14 @@ def epanet_simulator(wn, sim_type, flow_df):
 
 
 
-def set_wq_simulation(wn, sim_type, wq_df, trace_node):
+def set_wq_simulation(wn, sim_type, wq_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff):
 
     if sim_type == 'age':
         wn.options.quality.parameter = "AGE"
     elif sim_type == 'chlorine':
         wn.options.quality.parameter = "CHEMICAL"
         wn = set_source_cl(wn, wq_df)
-        # wn = set_reaction_parameters(wn, ...)
-        wn.options.reaction.bulk_coeff = (-0.55/3600/24) # units = 1/second (GET FROM BW)
-        # wn.options.reaction.wall_coeff = (-0.02/3600/24) # units = 1/second
+        wn = set_reaction_parameters(wn, wall_grouping, wall_coeffs, bulk_coeff)
     elif sim_type == 'trace' and trace_node is not None:
         wn.options.quality.parameter = 'TRACE'
         if trace_node in wn.reservoir_name_list:
@@ -150,6 +148,59 @@ def set_source_cl(wn, wq_df):
         reservoir_data.initial_quality = cl0[idx][0]
 
     
+    return wn
+
+
+
+def set_reaction_parameters(wn, wall_grouping, wall_coeffs, bulk_coeff):
+
+    wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # units = 1/second (GET FROM BW)
+
+    if wall_grouping == 'single':
+        wn.options.reaction.wall_coeff = (wall_coeffs['single']/3600/24) # units = 1/second
+
+    elif wall_grouping == 'diameter-based':
+        for name, link in wn.links():
+            if isinstance(link, wntr.network.Pipe):
+                if link.diameter * 1000 < 75:
+                    link.wall_coeff = wall_coeffs['less_than_75']/3600/24
+                elif 75 <= link.diameter * 1000 < 150:
+                    link.wall_coeff = wall_coeffs['between_75_and_150']/3600/24
+                elif 150 <= link.diameter * 1000 < 250:
+                    link.wall_coeff = wall_coeffs['between_150_and_250']/3600/24
+                elif 250 <= link.diameter * 1000:
+                    link.wall_coeff = wall_coeffs['greater_than_250']/3600/24
+
+    elif wall_grouping == 'roughness-based':
+        # wall_coeffs = {
+        #     'less_than_50': -0.12,
+        #     'between_50_and_55': -0.10,
+        #     'between_55_and_65': -0.08,
+        #     'between_65_and_80': -0.07,
+        #     'between_80_and_100': -0.06,
+        #     'between_100_and_120': -0.05,
+        #     'between_120_and_138': -0.04,
+        #     'greater_than_138': -0.03
+        # }
+        for name, link in wn.links():
+            if isinstance(link, wntr.network.Pipe):
+                if link.roughness < 50:
+                    link.wall_coeff = (wall_coeffs['less_than_50']/3600/24)
+                elif 50 <= link.roughness < 55:
+                    link.wall_coeff = (wall_coeffs['between_50_and_55']/3600/24)
+                elif 55 <= link.roughness < 65:
+                    link.wall_coeff = (wall_coeffs['between_55_and_65']/3600/24)
+                elif 65 <= link.roughness < 80:
+                    link.wall_coeff = (wall_coeffs['between_65_and_80']/3600/24)
+                elif 80 <= link.roughness < 100:
+                    link.wall_coeff = (wall_coeffs['between_80_and_100']/3600/24)
+                elif 100 <= link.roughness < 120:
+                    link.wall_coeff = (wall_coeffs['between_100_and_120']/3600/24)
+                elif 120 <= link.roughness < 138:
+                    link.wall_coeff = (wall_coeffs['between_120_and_138']/3600/24)
+                elif 138 <= link.roughness:
+                    link.wall_coeff = (wall_coeffs['greater_than_138']/3600/24)
+
     return wn
 
 
