@@ -70,7 +70,6 @@ def set_simulation_time(wn, flow_df):
     wn.options.time.pattern_timestep = time_step
     wn.options.time.pattern_start = 0
     wn.options.time.report_start = 0
-    wn.options.time.start_clocktime = wn.options.time.start_clocktime
 
     return wn
 
@@ -104,9 +103,9 @@ def set_wq_simulation(wn, sim_type, wq_df, trace_node):
         wn.options.quality.parameter = "AGE"
     elif sim_type == 'chlorine':
         wn.options.quality.parameter = "CHEMICAL"
-        # wn = set_source_cl(wn, network, wq_df)
+        wn = set_source_cl(wn, wq_df)
         # wn = set_reaction_parameters(wn, ...)
-        # wn.options.reaction.bulk_coeff = (-0.75/3600/24) # units = 1/second (GET FROM BW)
+        wn.options.reaction.bulk_coeff = (-0.55/3600/24) # units = 1/second (GET FROM BW)
         # wn.options.reaction.wall_coeff = (-0.02/3600/24) # units = 1/second
     elif sim_type == 'trace' and trace_node is not None:
         wn.options.quality.parameter = 'TRACE'
@@ -114,7 +113,43 @@ def set_wq_simulation(wn, sim_type, wq_df, trace_node):
             wn.options.quality.trace_node = trace_node
         else:
             print(f"Error. {trace_node} is not a reservoir.")
+    else:
+        wn.options.quality.parameter = "NONE"
 
+    return wn
+
+
+
+def set_source_cl(wn, wq_df):
+
+    reservoir_nodes = wn.reservoir_name_list
+    device_id = sensor_model_id('wq')
+    datetime = wq_df['datetime'].unique()
+
+    cl0 = {}
+
+    for idx, node in enumerate(reservoir_nodes):
+
+        bwfl_id = device_id[device_id['model_id'] == node]['bwfl_id'].values[0]
+        cl0[idx] = wq_df[(wq_df['bwfl_id'] == str(bwfl_id)) & (wq_df['data_type'] == 'chlorine')]['mean'].values
+
+        if np.isnan(cl0[idx]).any():
+            print(f"Error setting source chlorine values at reservoir {node}. Default values used.")
+            cl0[idx] = [0.8] * len(datetime)
+        else:
+            try:
+                wn.add_pattern(node + "_cl", cl0[idx][1:])
+                wn.add_source(node + "_cl", node, "CONCEN", 1, node + "_cl")
+            except:
+                print(f"Error setting source chlorine values at reservoir {node}. Default values used.")
+                cl0[idx] = [0.8] * len(datetime)
+                wn.add_pattern(node + "_cl", cl0[idx][1:])
+                wn.add_source(node + "_cl", node, "CONCEN", 1, node + "_cl")
+
+        reservoir_data = wn.get_node(node)
+        reservoir_data.initial_quality = cl0[idx][0]
+
+    
     return wn
 
 
@@ -174,17 +209,19 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     dbv_links = valve_info['dbv_link']
     if dbv_status == 'active':
         dbv_K_default = np.where(((datetime.astype('datetime64[h]').astype(int) % 24) < 5) | ((datetime.astype('datetime64[h]').astype(int) % 24) > 21), IV_CLOSE, IV_OPEN_PART)
-        dbv_K = np.tile(dbv_K_default, (2, 1))
-        try:
-            dbv_K = get_dbv_settings(wn, flow_df, pressure_df, dbv_links)
-        except:
-            print("Error setting DBV settings. Default values used.")
-        if any(np.isnan(value).any() for value in dbv_K.values()):
-            print("Error setting DBV settings. Default values used.")
-            dbv_K = np.tile(dbv_K_default, (2, 1))
+        dbv_K_default = np.tile(dbv_K_default, (2, 1))
+        
+        dbv_K = get_dbv_settings(wn, flow_df, pressure_df, dbv_links)
 
         for idx, link in enumerate(dbv_links):
-            wn.get_link(link).initial_setting = dbv_K[idx][0]
+
+            if any(np.isnan(value).any() for value in dbv_K[idx]):
+                print(f"Error setting DBV settings @ {link}. Default values used.")
+                dbv_K_idx = dbv_K_default[idx]
+            else:
+                dbv_K_idx = dbv_K[idx]
+
+            wn.get_link(link).initial_setting = dbv_K_idx[0]
             wn.get_link(link).initial_status = "Active"
         
         dbv_controls = []
@@ -193,7 +230,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
                 valve = wn.get_link(link)
                 dbv_controls = f"{link}_dbv_setting_t_{t/4}"
                 cond = wntr.network.controls.SimTimeCondition(wn, '=', t*900)  # 900 seconds = 15 minutes
-                act = wntr.network.controls.ControlAction(valve, "setting", dbv_K[idx][t])
+                act = wntr.network.controls.ControlAction(valve, "setting", dbv_K_idx[t])
                 rule = wntr.network.controls.Rule(cond, [act], name=dbv_controls)
                 wn.add_control(dbv_controls, rule)
 
@@ -201,24 +238,22 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     prv_links = valve_info['prv_link']
     prv_dir = valve_info['prv_dir']
     prv_settings_default = {i: np.tile(np.array(valve_info['prv_settings'][i], dtype=float), len(datetime)) for i in range(len(prv_links))}
-    prv_settings = prv_settings_default
 
-    try:
-        prv_settings = get_prv_settings(wn, pressure_df, prv_links, prv_dir)
-    except:
-        print("Error setting PRV settings. Default values used.")
-
-    if any(np.isnan(value).any() for value in prv_settings.values()):
-        print("Error setting PRV settings. Default values used.")
-        prv_settings = prv_settings_default
+    prv_settings = get_prv_settings(wn, pressure_df, prv_links, prv_dir)
 
     for idx, link in enumerate(prv_links):
+        if any(np.isnan(value).any() for value in prv_settings[idx]):
+            print(f"Error setting PRV settings @ {link}. Default values used.")
+            prv_settings_idx = prv_settings_default[idx]
+        else:
+            prv_settings_idx = prv_settings[idx]
+
         valve = wn.get_link(link)
         wn.remove_link(link)
         if prv_dir[idx] == 1:
-            wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings[idx][0], initial_status="Active")
+            wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings_idx[0], initial_status="Active")
         elif prv_dir[idx] == -1:
-            wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings[idx][0], initial_status="Active")
+            wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings_idx[0], initial_status="Active")
 
     prv_controls = []
     for t in np.arange(1, len(datetime)):
@@ -226,7 +261,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
             valve = wn.get_link(link)
             prv_controls = f"{link}_prv_setting_t_{t/4}"
             cond = wntr.network.controls.SimTimeCondition(wn, '=', t*900)  # 900 seconds = 15 minutes
-            act = wntr.network.controls.ControlAction(valve, "setting", prv_settings[idx][t])
+            act = wntr.network.controls.ControlAction(valve, "setting", prv_settings_idx[t])
             rule = wntr.network.controls.Rule(cond, [act], name=prv_controls)
             wn.add_control(prv_controls, rule)
 
@@ -389,23 +424,28 @@ def get_dbv_settings(wn, flow_df, pressure_df, dbv_links):
 
     for idx, link in enumerate(dbv_links):
 
-        start_node = wn.get_link(link).start_node_name
-        start_bwfl_id = pressure_device_id[pressure_device_id['model_id'] == start_node]['bwfl_id'].values[0]
-        start_pressure = pressure_df[pressure_df['bwfl_id'] == start_bwfl_id]['mean'].values
+        try:
 
-        end_node = wn.get_link(link).end_node_name
-        end_bwfl_id = pressure_device_id[pressure_device_id['model_id'] == end_node]['bwfl_id'].values[0]
-        end_pressure = pressure_df[pressure_df['bwfl_id'] == end_bwfl_id]['mean'].values
+            start_node = wn.get_link(link).start_node_name
+            start_bwfl_id = pressure_device_id[pressure_device_id['model_id'] == start_node]['bwfl_id'].values[0]
+            start_pressure = pressure_df[pressure_df['bwfl_id'] == start_bwfl_id]['mean'].values
 
-        dbv_bwfl_id = flow_device_id[flow_device_id['model_id'] == str(link)]['bwfl_id'].values[0]
-        dbv_flow = flow_df[flow_df['bwfl_id'] == dbv_bwfl_id]['mean'].values / 1000 # convert to cms
+            end_node = wn.get_link(link).end_node_name
+            end_bwfl_id = pressure_device_id[pressure_device_id['model_id'] == end_node]['bwfl_id'].values[0]
+            end_pressure = pressure_df[pressure_df['bwfl_id'] == end_bwfl_id]['mean'].values
 
-        dbv_diam = wn.get_link(link).diameter
-        dbv_value = (abs(start_pressure - end_pressure) * 2 * 9.81 * np.pi**2 * dbv_diam**4) / (abs(dbv_flow)**2 * 4**2)
-        dbv_value = np.minimum(dbv_value, IV_CLOSE)
-        dbv_value = np.maximum(dbv_value, IV_OPEN)
+            dbv_bwfl_id = flow_device_id[flow_device_id['model_id'] == str(link)]['bwfl_id'].values[0]
+            dbv_flow = flow_df[flow_df['bwfl_id'] == dbv_bwfl_id]['mean'].values / 1000 # convert to cms
 
-        dbv_K[idx] = dbv_value
+            dbv_diam = wn.get_link(link).diameter
+            dbv_value = (abs(start_pressure - end_pressure) * 2 * 9.81 * np.pi**2 * dbv_diam**4) / (abs(dbv_flow)**2 * 4**2)
+            dbv_value = np.minimum(dbv_value, IV_CLOSE)
+            dbv_value = np.maximum(dbv_value, IV_OPEN)
+
+            dbv_K[idx] = dbv_value
+
+        except:
+            dbv_K[idx] = [np.nan] * len(pressure_df['datetime'].unique())
 
     return dbv_K
 
@@ -419,16 +459,18 @@ def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
 
     for idx, link in enumerate(prv_links):
 
-        if prv_dir[idx] == 1:
-            node = wn.get_link(link).end_node_name
-            bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
-            pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
-        elif prv_dir[idx] == -1:
-            node = wn.get_link(link).start_node_name
-            bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
-            pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
-
-        prv_settings[idx] = pressure
+        try:
+            if prv_dir[idx] == 1:
+                node = wn.get_link(link).end_node_name
+                bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
+                pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
+            elif prv_dir[idx] == -1:
+                node = wn.get_link(link).start_node_name
+                bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
+                pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
+            prv_settings[idx] = pressure
+        except:
+            prv_settings[idx] = [np.nan] * len(pressure_df['datetime'].unique())
 
     return prv_settings
 
