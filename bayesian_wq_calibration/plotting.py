@@ -32,9 +32,9 @@ def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
         y=y_coords,
         mode='markers',
         marker=dict(
-            size=7,
+            size=6,
             color='grey',
-            opacity=1
+            opacity=0.8
         ),
         text=list(uG.nodes),
         hoverinfo='text',
@@ -138,8 +138,8 @@ def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
         margin=dict(b=0, l=0, r=0, t=40),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        width=650,
-        height=750,
+        width=500,
+        height=600,
         paper_bgcolor='white',
         plot_bgcolor='white'
     )

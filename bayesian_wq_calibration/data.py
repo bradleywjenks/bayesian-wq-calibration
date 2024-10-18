@@ -4,6 +4,8 @@ import numpy as np
 import scipy.sparse as sp
 from pydantic import BaseModel
 from typing import Any
+from bayesian_wq_calibration.simulation import sensor_model_id
+from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR
 
 
 class WDN(BaseModel):
@@ -133,3 +135,37 @@ def load_network_data(inp_file):
     return wdn
 
 
+
+
+
+"""
+Time series data functions
+""" 
+
+def get_sensor_stats(data_type, sensor_names, N=19):
+
+    sensor_df = pd.DataFrame()
+
+    if data_type == 'wq':
+        for idx in range(1, N):
+            data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-wq.csv", low_memory=False)
+            sensor_df = pd.concat([sensor_df, data_df])
+    elif data_type == 'flow':
+        for idx in range(1, N):
+            data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-flow.csv")
+            sensor_df = pd.concat([sensor_df, data_df])
+    elif data_type == 'pressure':
+        for idx in range(1, N):
+            data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-pressure.csv")
+            sensor_df = pd.concat([sensor_df, data_df])
+
+    try:
+        sensor_df = sensor_df[sensor_df['bwfl_id'].isin(sensor_names)]
+    except:
+        sensor_df = []
+        print(f"Sensor names not found in {data_type} time series data.")
+
+    sensor_df = sensor_df.dropna(subset=['mean'])
+    stats = sensor_df.groupby('bwfl_id')['mean'].describe(percentiles=[.01, .10, .25, .50, .75, .90, .99])
+
+    return stats
