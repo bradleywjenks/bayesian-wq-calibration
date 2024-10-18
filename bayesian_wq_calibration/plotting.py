@@ -10,7 +10,7 @@ from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE
 """"
     Main network plotting function
 """
-def plot_network(wq_sensors=True, flow_sensors=True, prvs=False, dbvs=False):
+def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
 
     # unload data
     wdn = load_network_data(NETWORK_DIR / INP_FILE)
@@ -18,30 +18,30 @@ def plot_network(wq_sensors=True, flow_sensors=True, prvs=False, dbvs=False):
     node_df = wdn.node_df
     net_info = wdn.net_info
 
-    # Create a NetworkX graph from the data
+    # networkx data
     uG = nx.from_pandas_edgelist(link_df, source='node_out', target='node_in')
     pos = {row['node_ID']: (row['xcoord'], row['ycoord']) for _, row in node_df.iterrows()}
 
-    # Extract node coordinates for Plotly
+    # get coordinates
     x_coords = [pos[node][0] for node in uG.nodes()]
     y_coords = [pos[node][1] for node in uG.nodes()]
 
-    # Initialize a scatter plot for nodes
+    # junction nodes
     node_trace = go.Scatter(
         x=x_coords,
         y=y_coords,
         mode='markers',
         marker=dict(
-            size=9,
+            size=7,
             color='grey',
-            opacity=0.5
+            opacity=1
         ),
         text=list(uG.nodes),
         hoverinfo='text',
         name='Junction'
     )
 
-    # Draw reservoir nodes separately with custom styles
+    # reservoir nodes
     reservoir_nodes = net_info['reservoir_names']
     reservoir_x = [pos[node][0] for node in reservoir_nodes]
     reservoir_y = [pos[node][1] for node in reservoir_nodes]
@@ -60,7 +60,7 @@ def plot_network(wq_sensors=True, flow_sensors=True, prvs=False, dbvs=False):
         name='Reservoir'
     )
 
-    # If water quality sensors are included
+    # water quality sensors
     if wq_sensors:
         sensor_data = sensor_model_id('wq')
         sensor_names = sensor_data['model_id'].values
@@ -72,15 +72,41 @@ def plot_network(wq_sensors=True, flow_sensors=True, prvs=False, dbvs=False):
             y=sensor_y,
             mode='markers',
             marker=dict(
-                size=15,
-                color='red'
+                size=14,
+                color='red',
+                line=dict(color='white', width=2)
             ),
             text=[str(sensor_data['bwfl_id'][idx]) for idx in range(len(sensor_names))],
             hoverinfo='text',
             name='Water quality sensor'
         )
 
-    # Create the edge traces for Plotly
+
+    # flow meters
+    if flow_meters:
+        flow_data = sensor_model_id('flow')
+        bwfl_ids = ['inlet_2296', 'inlet_2005', 'Snowden Road DBV', 'New Station Way DBV']
+        flow_names = [flow_data[flow_data['bwfl_id'] == name]['model_id'].values[0] for name in bwfl_ids]
+        flow_position = link_df.loc[link_df['link_ID'].isin(flow_names), 'node_in'].tolist()
+        flow_x = [pos[node][0] for node in flow_position]
+        flow_y = [pos[node][1] for node in flow_position]
+
+        flow_trace = go.Scatter(
+            x=flow_x,
+            y=flow_y,
+            mode='markers',
+            marker=dict(
+                size=14,
+                color='blue',
+                line=dict(color='white', width=2),
+                symbol='diamond'
+            ),
+            text=['inlet_2296', 'Snowden Road DBV', 'New Station Way DBV', 'inlet_2005'],
+            hoverinfo='text',
+            name='DMA flow meter'
+        )
+
+    # plot links
     edge_x = []
     edge_y = []
     for edge in uG.edges():
@@ -102,6 +128,9 @@ def plot_network(wq_sensors=True, flow_sensors=True, prvs=False, dbvs=False):
 
     if wq_sensors:
         fig.add_trace(sensor_trace)
+
+    if flow_meters:
+        fig.add_trace(flow_trace)
 
     fig.update_layout(
         showlegend=True,
