@@ -138,7 +138,7 @@ def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
         margin=dict(b=0, l=0, r=0, t=40),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        width=500,
+        width=600,
         height=600,
         paper_bgcolor='white',
         plot_bgcolor='white'

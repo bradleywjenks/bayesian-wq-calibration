@@ -147,17 +147,26 @@ def get_sensor_stats(data_type, sensor_names, N=19):
     sensor_df = pd.DataFrame()
 
     if data_type == 'wq':
-        for idx in range(1, N):
+        for idx in range(1, N+1):
+            data_df = None
             data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-wq.csv", low_memory=False)
-            sensor_df = pd.concat([sensor_df, data_df])
+            if data_df is not None:
+                # print(f"Data frame {idx} was successfully read.")
+                sensor_df = pd.concat([sensor_df, data_df])
     elif data_type == 'flow':
-        for idx in range(1, N):
+        for idx in range(1, N+1):
+            data_df = None
             data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-flow.csv")
-            sensor_df = pd.concat([sensor_df, data_df])
+            if data_df is not None:
+                # print(f"Data frame {idx} was successfully read.")
+                sensor_df = pd.concat([sensor_df, data_df])
     elif data_type == 'pressure':
-        for idx in range(1, N):
+        for idx in range(1, N+1):
+            data_df = None
             data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-pressure.csv")
-            sensor_df = pd.concat([sensor_df, data_df])
+            if data_df is not None:
+                # print(f"Data frame {idx} was successfully read.")
+                sensor_df = pd.concat([sensor_df, data_df])
 
     try:
         sensor_df = sensor_df[sensor_df['bwfl_id'].isin(sensor_names)]
@@ -165,7 +174,8 @@ def get_sensor_stats(data_type, sensor_names, N=19):
         sensor_df = []
         print(f"Sensor names not found in {data_type} time series data.")
 
-    sensor_df = sensor_df.dropna(subset=['mean'])
+    # sensor_df.dropna(subset=['mean'], inplace=True)
+    sensor_df.drop_duplicates(subset=['datetime', 'bwfl_id'], inplace=True)
     stats = sensor_df.groupby('bwfl_id')['mean'].describe(percentiles=[.01, .10, .25, .50, .75, .90, .99])
 
     return stats
