@@ -176,6 +176,16 @@ def get_sensor_stats(data_type, sensor_names, N=19):
 
     # sensor_df.dropna(subset=['mean'], inplace=True)
     sensor_df.drop_duplicates(subset=['datetime', 'bwfl_id'], inplace=True)
+
     stats = sensor_df.groupby('bwfl_id')['mean'].describe(percentiles=[.01, .10, .25, .50, .75, .90, .99])
 
     return stats
+
+
+
+def count_pressure_events(pressure_df, threshold=10):
+
+    count = 0
+    # insert code here...
+    
+    return count
