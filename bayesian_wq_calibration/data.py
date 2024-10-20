@@ -183,9 +183,24 @@ def get_sensor_stats(data_type, sensor_names, N=19):
 
 
 
-def count_pressure_events(pressure_df, threshold=10):
+def count_pressure_events(threshold=10, N=19):
 
-    count = 0
-    # insert code here...
-    
+    count = []
+    sensor_data = sensor_model_id('pressure')
+    bwfl_ids = sensor_data['bwfl_id'].unique()
+
+    for idx in range(1, N+1):
+        data_df = None
+        data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-pressure.csv")
+        data_df = data_df[data_df['bwfl_id'].isin(bwfl_ids)]
+        if data_df is not None:
+            count_idx = data_df[data_df['max'] - data_df['min'] > threshold].groupby('bwfl_id')
+            if count_idx.ngroups != 0:
+                count.append(count_idx.size().max())
+            else:
+                count.append(np.nan)
+        else:
+            print("Error loading data.")
+            break
+
     return count

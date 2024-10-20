@@ -10,7 +10,7 @@ from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE
 """"
     Main network plotting function
 """
-def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
+def plot_network(wq_sensors=True, flow_meters=True, pressure_sensors=False, prvs=False, dbvs=False):
 
     # unload data
     wdn = load_network_data(NETWORK_DIR / INP_FILE)
@@ -67,7 +67,7 @@ def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
         sensor_x = [pos[node][0] for node in sensor_names]
         sensor_y = [pos[node][1] for node in sensor_names]
         
-        sensor_trace = go.Scatter(
+        wq_trace = go.Scatter(
             x=sensor_x,
             y=sensor_y,
             mode='markers',
@@ -106,6 +106,27 @@ def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
             name='DMA flow meter'
         )
 
+    # pressure loggers
+    if pressure_sensors:
+        sensor_data = sensor_model_id('pressure')
+        sensor_names = sensor_data['model_id'].values
+        sensor_x = [pos[node][0] for node in sensor_names]
+        sensor_y = [pos[node][1] for node in sensor_names]
+        
+        pressure_trace = go.Scatter(
+            x=sensor_x,
+            y=sensor_y,
+            mode='markers',
+            marker=dict(
+                size=14,
+                color='purple',
+                line=dict(color='white', width=2)
+            ),
+            text=[str(sensor_data['bwfl_id'][idx]) for idx in range(len(sensor_names))],
+            hoverinfo='text',
+            name='Pressure sensor'
+        )
+
     # plot links
     edge_x = []
     edge_y = []
@@ -127,10 +148,13 @@ def plot_network(wq_sensors=True, flow_meters=True, prvs=False, dbvs=False):
     fig = go.Figure(data=[edge_trace, node_trace, reservoir_trace])
 
     if wq_sensors:
-        fig.add_trace(sensor_trace)
+        fig.add_trace(wq_trace)
 
     if flow_meters:
         fig.add_trace(flow_trace)
+
+    if pressure_sensors:
+        fig.add_trace(pressure_trace)
 
     fig.update_layout(
         showlegend=True,

@@ -439,18 +439,19 @@ def sensor_model_id(device_type):
     if device_type == 'pressure':
         device_df = pd.read_excel(DEVICE_DIR / 'pressure_device_database.xlsx')
         element_type = 'node'
-        device_id = device_df[['BWFL ID', 'Asset ID', 'Final Elevation (m)']].drop_duplicates(subset=['BWFL ID'])
-        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'Final Elevation (m)': 'elev'}, inplace=True)
+        device_id = device_df[['BWFL ID', 'Asset ID', 'DMA ID', 'Final Elevation (m)']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'DMA ID': 'dma_id', 'Final Elevation (m)': 'elev'}, inplace=True)
+        device_id = device_id[device_id['dma_id'].isin([2296, 2005])]
     elif device_type == 'flow':
         device_df = pd.read_excel(DEVICE_DIR / 'flow_device_database.xlsx')
         element_type = 'link'
-        device_id = device_df[['BWFL ID', 'Asset ID']].drop_duplicates(subset=['BWFL ID'])
-        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id'}, inplace=True)
+        device_id = device_df[['BWFL ID', 'Asset ID', 'DMA ID']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'DMA ID': 'dma_id'}, inplace=True)
     elif device_type == 'wq':
         device_df = pd.read_excel(DEVICE_DIR / 'wq_device_database.xlsx')
         element_type = 'node'
         device_id = device_df[['BWFL ID', 'Asset ID']].drop_duplicates(subset=['BWFL ID'])
-        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id'}, inplace=True)
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'DMA ID': 'dma_id'}, inplace=True)
 
     device_id['asset_id'] = device_id['asset_id'].astype(str)
     
