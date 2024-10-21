@@ -146,13 +146,16 @@ def get_sensor_stats(data_type, sensor_names, N=19):
 
     sensor_df = pd.DataFrame()
 
-    if data_type == 'wq':
+    if data_type == 'temperature' or data_type == 'ph':
         for idx in range(1, N+1):
             data_df = None
             data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-wq.csv", low_memory=False)
             if data_df is not None:
                 # print(f"Data frame {idx} was successfully read.")
                 sensor_df = pd.concat([sensor_df, data_df])
+        sensor_df = sensor_df[sensor_df['data_type'] == data_type]
+        if data_type == 'ph':
+            sensor_df.loc[(sensor_df['mean'] < 4) | (sensor_df['mean'] > 11), 'mean'] = np.nan
     elif data_type == 'flow':
         for idx in range(1, N+1):
             data_df = None
