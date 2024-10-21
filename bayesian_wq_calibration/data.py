@@ -207,3 +207,33 @@ def count_pressure_events(threshold=10, N=19):
             break
 
     return count
+
+
+
+def count_turbidity_events(threshold=2, N=19):
+
+    sensor_data = sensor_model_id('wq')
+    bwfl_ids = sensor_data['bwfl_id'].unique()
+
+    count_df = pd.DataFrame()
+
+    for idx in range(1, N+1):
+        data_df = None
+        data_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(idx).zfill(2)}-wq.csv")
+        data_df = data_df[(data_df['bwfl_id'].isin(bwfl_ids)) & (data_df['data_type'] == 'turbidity')]
+
+        if data_df is not None:
+            count_idx_df = pd.DataFrame({'bwfl_id': bwfl_ids})
+            count_idx_df['data_period'] = idx
+            for bwfl_id in bwfl_ids:
+                count_idx_df.loc[count_idx_df['bwfl_id'] == bwfl_id, 'num_events'] = data_df[(data_df['bwfl_id'] == bwfl_id) & (data_df['mean'] > threshold)].shape[0]
+
+            count_df = pd.concat([count_df, count_idx_df])
+
+        else:
+            print("Error loading data.")
+            break
+
+    count_df.reset_index(drop=True, inplace=True)
+
+    return count_df
