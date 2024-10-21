@@ -22,7 +22,7 @@ class SimResults:
     Main model simulation function using EPANET solver
 """
 
-def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, wall_grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.55, flush_data=None):
+def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, wall_grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.55, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -40,7 +40,7 @@ def model_simulation(flow_df, pressure_df, wq_df, sim_type='hydraulic', demand_r
     wn = set_simulation_time(wn, flow_df)
 
     # 6. set water quality simulation
-    wn = set_wq_simulation(wn, sim_type, wq_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff)
+    wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff)
 
     # 7. output results as structure
     sim_results = epanet_simulator(wn, sim_type, flow_df)
@@ -97,13 +97,13 @@ def epanet_simulator(wn, sim_type, flow_df):
 
 
 
-def set_wq_simulation(wn, sim_type, wq_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff):
+def set_wq_parameters(wn, sim_type, cl_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff):
 
     if sim_type == 'age':
         wn.options.quality.parameter = "AGE"
     elif sim_type == 'chlorine':
         wn.options.quality.parameter = "CHEMICAL"
-        wn = set_source_cl(wn, wq_df)
+        wn = set_source_cl(wn, cl_df)
         wn = set_reaction_parameters(wn, wall_grouping, wall_coeffs, bulk_coeff)
     elif sim_type == 'trace' and trace_node is not None:
         wn.options.quality.parameter = 'TRACE'
@@ -118,18 +118,18 @@ def set_wq_simulation(wn, sim_type, wq_df, trace_node, wall_grouping, wall_coeff
 
 
 
-def set_source_cl(wn, wq_df):
+def set_source_cl(wn, cl_df):
 
     reservoir_nodes = wn.reservoir_name_list
     device_id = sensor_model_id('wq')
-    datetime = wq_df['datetime'].unique()
+    datetime = cl_df['datetime'].unique()
 
     cl0 = {}
 
     for idx, node in enumerate(reservoir_nodes):
 
         bwfl_id = device_id[device_id['model_id'] == node]['bwfl_id'].values[0]
-        cl0[idx] = wq_df[(wq_df['bwfl_id'] == str(bwfl_id)) & (wq_df['data_type'] == 'chlorine')]['mean'].values
+        cl0[idx] = cl_df[cl_df['bwfl_id'] == str(bwfl_id)]['mean'].values
 
         if np.isnan(cl0[idx]).any():
             print(f"Error setting source chlorine values at reservoir {node}. Default values used.")
@@ -172,16 +172,6 @@ def set_reaction_parameters(wn, wall_grouping, wall_coeffs, bulk_coeff):
                     link.wall_coeff = wall_coeffs['greater_than_250']/3600/24
 
     elif wall_grouping == 'roughness-based':
-        # wall_coeffs = {
-        #     'less_than_50': -0.12,
-        #     'between_50_and_55': -0.10,
-        #     'between_55_and_65': -0.08,
-        #     'between_65_and_80': -0.07,
-        #     'between_80_and_100': -0.06,
-        #     'between_100_and_120': -0.05,
-        #     'between_120_and_138': -0.04,
-        #     'greater_than_138': -0.03
-        # }
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
                 if link.roughness < 50:

@@ -171,3 +171,7 @@ data/timeseries/processed/*
 !data/timeseries/processed/.gitkeep
 data/timeseries/imputed/*
 !data/timeseries/imputed/.gitkeep
+
+# notebooks
+!notebooks/01-data-period-features.ipynb
+!notebooks/02-GA-model-calibration.ipynb
