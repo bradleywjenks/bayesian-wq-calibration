@@ -230,6 +230,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
         valve_info = json.load(f)
 
     datetime = flow_df['datetime'].unique()
+    datetime = np.array(datetime, dtype='datetime64[h]')
 
     pressure_device_id = sensor_model_id('pressure')
     flow_device_id = sensor_model_id('flow')

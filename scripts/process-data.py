@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import argparse
 import json
+from bayesian_wq_calibration.simulation import model_simulation, sensor_model_id
 from bayesian_wq_calibration.constants import TIMESERIES_DIR
 
 
@@ -85,7 +86,9 @@ for idx, period in good_data.items():
    filtered_flow_df = flow_df[(flow_df['datetime'] >= period['start_date']) & (flow_df['datetime'] <= period['end_date'])]
    filtered_wq_df = wq_df[(wq_df['datetime'] >= period['start_date']) & (wq_df['datetime'] <= period['end_date'])]
 
-   # hard-coded chlorine data modifications
+   ### Manual data filtering ###
+   # 1. remove one time series at dupicated sensor locations based on comparison between upstream/downstream sensor (i.e. BW1/BW12 and BW4/BW9)
+   # 2. remove erroneous data (e.g. zero data, downstream sensors with noticeably higher residuals than at the source)
    if idx == 1:
       filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW1_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
       filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW12_2') & (filtered_wq_df['data_type'] == 'chlorine')].index, inplace=True)
@@ -201,8 +204,27 @@ for idx, period in good_data.items():
       filtered_wq_df.loc[filtered_wq_df[(filtered_wq_df['bwfl_id'] == 'BW5') & (filtered_wq_df['data_type'] == 'chlorine') & (filtered_wq_df['datetime'] >= pd.to_datetime('2024-09-25 11:45:00')) & (filtered_wq_df['datetime'] <= pd.to_datetime('2024-09-25 13:00:00'))].index, value_columns] = np.nan
 
    filtered_wq_df.drop(filtered_wq_df[(filtered_wq_df['bwfl_id'].isin(['BW1_2', 'BW12_2', 'BW4_2', 'BW9_2'])) & (filtered_wq_df['data_type'] != 'chlorine')].index,inplace=True)
-
    filtered_wq_df['bwfl_id'] = filtered_wq_df['bwfl_id'].str.split('_').str[0]
+
+
+   ### Check data satisfies expected directional conditions based on network hydraulics
+   # 1. simulate water age and shift time series based on average age from source
+   datetime = filtered_flow_df['datetime'].unique()
+   filtered_cl_df = filtered_wq_df[filtered_wq_df['data_type'] == 'chlorine']
+   sim_results = model_simulation(filtered_flow_df, filtered_pressure_df, filtered_cl_df, sim_type='age')
+   age = sim_results.age
+   sensor_data = sensor_model_id('wq')
+   age = age[sensor_data['model_id'].unique()]
+   name_mapping = sensor_data.set_index('model_id')['bwfl_id'].to_dict()
+   age = age.rename(columns=name_mapping)
+   print(age)
+
+   # 2. check the that the following conditions are met within a specified tolerance
+   #  (a) enter text here...
+   #  (b) enter text here...
+   #  (c) enter text here...
+   #  (d) enter text here... 
+
 
    
    # export to csv files

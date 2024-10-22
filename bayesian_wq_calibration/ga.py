@@ -39,7 +39,7 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_g
         raise ValueError('Wall grouping type is not valid. Please choose from: single, diameter-based, roughness-based, or material-based.')
 
     # simulate water quality dynamics
-    sim_results = model_simulation(flow_df, pressure_df, cl_df, sim_type='chlorine', demand_resolution=demand_resolution, iv_status='closed', dbv_status='active', trace_node=None, wall_grouping=wall_grouping, wall_coeffs=wall_coeffs_dict, bulk_coeff=bulk_coeff, flush_data=None)
+    sim_results = model_simulation(flow_df, pressure_df, cl_df, sim_type='chlorine', demand_resolution=demand_resolution, wall_grouping=wall_grouping, wall_coeffs=wall_coeffs_dict, bulk_coeff=bulk_coeff)
 
     cl_sim = sim_results.chlorine
     sensor_data = sensor_model_id('wq')
