@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 # pass script arguments
 parser = argparse.ArgumentParser(description='Check quality of processed time series data for model calibration.')
 parser.add_argument('--tol', type=float, default=0.05, help='Error tolerance for comparing downstream sensor data (default: 0.05 mg/L).')
-parser.add_argument('--lag_method', type=str, default='x-corr', help='Method for computing time lag between sensor time series (default: cross-correlation).')
+parser.add_argument('--lag_method', type=str, default='water age', help='Method for computing time lag between sensor time series (default: simulated water age).')
 args = parser.parse_args()
 
 tol = args.tol # [mg/L] tolerance for directional conditions
@@ -26,10 +26,43 @@ lag_method = args.lag_method
 quality_threshold = 0.95 # percent of data points that must satisfy directional conditions; not 100% due to errors computing lag between time series
 
 if lag_method == 'dtw':
-    print('Note! Dynamic time warping method generally performs well, but some time series shifting is erroneous. To be investigated at a later date.')
+    print('Note! Dynamic time warping method needs further investigation as some shifted time series are erroneous. Proceed with caution.')
+else:
+    print(f'Selected time series shifting method: {lag_method}')
 
 
-# define functions
+
+
+
+### define functions ###
+def shift_time_series_water_age(cl_df, bwfl_id, age, idx):
+    
+    # find datetime of last increasing value during initializatoin
+    sensor_age = age[bwfl_id].values
+    first_i = -1
+
+    for i in range(len(sensor_age)-1):
+        if sensor_age[i] > sensor_age[i+1]:
+            first_i = i
+            break
+    
+    # assign nan values before first index
+    cl_df.loc[cl_df[(cl_df['bwfl_id'] == bwfl_id) & (cl_df['data_type'] == 'chlorine') & (cl_df['datetime'] <= cl_df['datetime'].unique()[first_i])].index, ['min','mean', 'max']] = np.nan
+    
+    # shift time series based on simulated water age
+    lag_values = []
+    for i in range(first_i, len(sensor_age)):
+        lag = -int(round(sensor_age[i] * 4))
+        lag_values.append(lag)
+        cl_df.loc[(cl_df['bwfl_id'] == bwfl_id) & (cl_df['datetime'] == cl_df['datetime'].unique()[i]), 'datetime'] += pd.Timedelta(minutes=15 * lag)
+
+    print(f"Data period {idx}. Shifted {bwfl_id} using simulated water age (lag range: {min(lag_values)} to {max(lag_values)} time steps).")
+
+    return None
+
+
+
+
 def shift_time_series_cross_correlation(cl_df, series_1, series_2, bwfl_id, mean_age_after_1_day, idx):
     """Shift time series using cross-correlation lag."""
     cross_corr = np.correlate(series_1 - np.mean(series_1), series_2 - np.mean(series_2), mode='full')
@@ -42,7 +75,7 @@ def shift_time_series_cross_correlation(cl_df, series_1, series_2, bwfl_id, mean
     else:
         best_lag = -int(round(mean_age_after_1_day[bwfl_id] * 4))
         cl_df.loc[cl_df['bwfl_id'] == bwfl_id, 'datetime'] += pd.Timedelta(minutes=15 * best_lag)
-        print(f"Data period {idx}. Shifted {bwfl_id} by {best_lag} time steps (cross-correlation not valid; apply simulated age).")
+        print(f"Data period {idx}. Shifted {bwfl_id} by {best_lag} time steps (cross-correlation not valid; apply mean simulated age).")
 
 
 
@@ -66,7 +99,7 @@ def shift_time_series_dtw(cl_df, series_1, series_2, bwfl_id, mean_age_after_1_d
         distance, paths = dtw.warping_paths(series_2, series_1, window=w_hr*4)
         optimal_path = dtw.best_path(paths)
     except:
-        print(f"Data period {idx}. Shifted {bwfl_id} by simulated water age (DTW failed due to missing data).")
+        print(f"Data period {idx}. Shifted {bwfl_id} by mean simulated water age (DTW failed due to missing data).")
         return
     
     lag_values = []
@@ -89,6 +122,9 @@ def shift_time_series_dtw(cl_df, series_1, series_2, bwfl_id, mean_age_after_1_d
         min_lag = max(lags)
         max_lag = min(lags)
         print(f"Data period {idx}. Shifted {bwfl_id} with DTW (lag range: {min_lag} to {max_lag} time steps).")
+
+
+
 
 
 
@@ -130,7 +166,9 @@ for idx in range(1, N+1):
         series_1 = cl_df[cl_df['bwfl_id'] == ref_sensor_id]['mean'].values
         series_2 = cl_df[cl_df['bwfl_id'] == bwfl_id]['mean'].values
 
-        if lag_method == 'x-corr':
+        if lag_method == 'water age':
+            shift_time_series_water_age(cl_df, bwfl_id, age, idx)
+        elif lag_method == 'x-corr':
             shift_time_series_cross_correlation(cl_df, series_1, series_2, bwfl_id, mean_age_after_1_day, idx)
         elif lag_method == 'dtw':
             shift_time_series_dtw(cl_df, series_1, series_2, bwfl_id, mean_age_after_1_day, idx)
