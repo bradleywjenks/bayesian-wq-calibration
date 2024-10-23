@@ -1,24 +1,35 @@
 from bayesian_wq_calibration.simulation import model_simulation, sensor_model_id
 import pandas as pd
 import numpy as np
+import random
+from deap import base, creator, tools, algorithms
 
 
 """
 Genetic algorithm fitness function
 """
-def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_grouping='single', bulk_coeff=-0.55, demand_resolution='dma'):
+def evaluate(individual, flow_df, pressure_df, cl_df, grouping):
+    wall_coeffs = individual
+    bulk_coeff = -0.4
+    obj_function = 'mse' # 'mse', 'rmse', 'mae', 'mape'
+    demand_resolution = 'wwmd' # 'dma', 'wwmd'
+    fitness_value =  fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function=obj_function, grouping=grouping, demand_resolution=demand_resolution, bulk_coeff=bulk_coeff)
+    return (fitness_value,)
+
+
+def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', grouping='single', bulk_coeff=-0.4, demand_resolution='dma'):
 
     # translate decision variables to dict for model simulation
-    if wall_grouping == 'single':
+    if grouping == 'single':
         wall_coeffs_dict = {'single': wall_coeffs[0]}
-    elif wall_grouping == 'diameter-based':
+    elif grouping == 'diameter-based':
         wall_coeffs = {
             'less_than_75': wall_coeffs[0],
             'between_75_and_150': wall_coeffs[1],
             'between_150_and_250': wall_coeffs[2],
             'greater_than_250': wall_coeffs[3]
         }
-    elif wall_grouping == 'roughness-based':
+    elif grouping == 'roughness-based':
         wall_coeffs = {
             'less_than_50': wall_coeffs[0],
             'between_50_and_55': wall_coeffs[1],
@@ -29,7 +40,7 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_g
             'between_120_and_138': wall_coeffs[6],
             'greater_than_138': wall_coeffs[7],
         }
-    elif wall_grouping == 'material-based':
+    elif grouping == 'material-based':
         wall_coeffs = {
             'metallic': wall_coeffs[0],
             'plastic': wall_coeffs[1],
@@ -39,7 +50,7 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_g
         raise ValueError('Wall grouping type is not valid. Please choose from: single, diameter-based, roughness-based, or material-based.')
 
     # simulate water quality dynamics
-    sim_results = model_simulation(flow_df, pressure_df, cl_df, sim_type='chlorine', demand_resolution=demand_resolution, wall_grouping=wall_grouping, wall_coeffs=wall_coeffs_dict, bulk_coeff=bulk_coeff)
+    sim_results = model_simulation(flow_df, pressure_df, cl_df, sim_type='chlorine', demand_resolution=demand_resolution, grouping=grouping, wall_coeffs=wall_coeffs_dict, bulk_coeff=bulk_coeff)
 
     cl_sim = sim_results.chlorine
     sensor_data = sensor_model_id('wq')
@@ -58,7 +69,7 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_g
             data = cl_df.loc[cl_df['bwfl_id'] == name, 'mean'].values
             mask = ~np.isnan(sim) & ~np.isnan(data)
             mse += (1 / (len(datetime) * len(bwfl_ids))) * np.sum((sim[mask] - data[mask]) ** 2)
-        return mse
+        obj_val = mse
 
     elif obj_function == 'rmse':
         rmse = 0
@@ -68,7 +79,7 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_g
             mask = ~np.isnan(sim) & ~np.isnan(data)
             rmse += (1 / (len(datetime) * len(bwfl_ids))) * np.sum((sim[mask] - data[mask]) ** 2)
         rmse = np.sqrt(rmse)
-        return rmse
+        obj_val = rmse
     
     elif obj_function == 'mae':
         mae = 0
@@ -77,7 +88,7 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_g
             data = cl_df.loc[cl_df['bwfl_id'] == name, 'mean'].values
             mask = ~np.isnan(sim) & ~np.isnan(data)
             mae += (1 / (len(datetime) * len(bwfl_ids))) * np.sum(np.abs(sim[mask] - data[mask]))
-        return mae
+        obj_val = mae
     
     elif obj_function == 'mape':
         mape = 0
@@ -87,7 +98,9 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', wall_g
             mask = ~np.isnan(sim) & ~np.isnan(data) & (data != 0)  # Ensure data is not zero to avoid division by zero
             mape += (1 / (len(datetime) * len(bwfl_ids))) * np.sum(np.abs((sim[mask] - data[mask]) / data[mask]))
         mape *= 100
-        return mape
+        obj_val = mape
     
     else:
         raise ValueError('Objective function is not valid. Please choose from: mse, rmse, mae, or mape.')
+
+    return obj_val

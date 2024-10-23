@@ -4,6 +4,9 @@ import pandas as pd
 import json
 import numpy as np
 import datetime
+import logging
+
+logging.basicConfig(level=logging.WARNING)
 
 class SimResults:
     def __init__(self):
@@ -22,7 +25,7 @@ class SimResults:
     Main model simulation function using EPANET solver
 """
 
-def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, wall_grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.55, flush_data=None):
+def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.55, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -40,7 +43,7 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
     wn = set_simulation_time(wn, flow_df)
 
     # 6. set water quality simulation
-    wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff)
+    wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff)
 
     # 7. output results as structure
     sim_results = epanet_simulator(wn, sim_type, flow_df)
@@ -97,20 +100,20 @@ def epanet_simulator(wn, sim_type, flow_df):
 
 
 
-def set_wq_parameters(wn, sim_type, cl_df, trace_node, wall_grouping, wall_coeffs, bulk_coeff):
+def set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff):
 
     if sim_type == 'age':
         wn.options.quality.parameter = "AGE"
     elif sim_type == 'chlorine':
         wn.options.quality.parameter = "CHEMICAL"
         wn = set_source_cl(wn, cl_df)
-        wn = set_reaction_parameters(wn, wall_grouping, wall_coeffs, bulk_coeff)
+        wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff)
     elif sim_type == 'trace' and trace_node is not None:
         wn.options.quality.parameter = 'TRACE'
         if trace_node in wn.reservoir_name_list:
             wn.options.quality.trace_node = trace_node
         else:
-            print(f"Error. {trace_node} is not a reservoir.")
+            logging.error(f"Error. {trace_node} is not a reservoir.")
     else:
         wn.options.quality.parameter = "NONE"
 
@@ -132,14 +135,14 @@ def set_source_cl(wn, cl_df):
         cl0[idx] = cl_df[cl_df['bwfl_id'] == str(bwfl_id)]['mean'].values
 
         if np.isnan(cl0[idx]).any():
-            print(f"Error setting source chlorine values at reservoir {node}. Default values used.")
+            logging.info(f"Error setting source chlorine values at reservoir {node}. Default values used.")
             cl0[idx] = [0.8] * len(datetime)
         else:
             try:
                 wn.add_pattern(node + "_cl", cl0[idx][1:])
                 wn.add_source(node + "_cl", node, "CONCEN", 1, node + "_cl")
             except:
-                print(f"Error setting source chlorine values at reservoir {node}. Default values used.")
+                logging.info(f"Error setting source chlorine values at reservoir {node}. Default values used.")
                 cl0[idx] = [0.8] * len(datetime)
                 wn.add_pattern(node + "_cl", cl0[idx][1:])
                 wn.add_source(node + "_cl", node, "CONCEN", 1, node + "_cl")
@@ -152,14 +155,14 @@ def set_source_cl(wn, cl_df):
 
 
 
-def set_reaction_parameters(wn, wall_grouping, wall_coeffs, bulk_coeff):
+def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
 
     wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # units = 1/second (GET FROM BW)
 
-    if wall_grouping == 'single':
+    if grouping == 'single':
         wn.options.reaction.wall_coeff = (wall_coeffs['single']/3600/24) # units = 1/second
 
-    elif wall_grouping == 'diameter-based':
+    elif grouping == 'diameter-based':
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
                 if link.diameter * 1000 < 75:
@@ -171,7 +174,7 @@ def set_reaction_parameters(wn, wall_grouping, wall_coeffs, bulk_coeff):
                 elif 250 <= link.diameter * 1000:
                     link.wall_coeff = wall_coeffs['greater_than_250']/3600/24
 
-    elif wall_grouping == 'roughness-based':
+    elif grouping == 'roughness-based':
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
                 if link.roughness < 50:
@@ -209,7 +212,7 @@ def set_reservoir_heads(wn, pressure_df):
         h0[idx] = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values + elev
 
         if np.isnan(h0[idx]).any():
-            print(f"Error setting boundary head values at reservoir {node}. Default values used.")
+            logging.info(f"Error setting boundary head values at reservoir {node}. Default values used.")
         else:
             try:
                 wn.add_pattern(node + "_h0", h0[idx])
@@ -217,7 +220,7 @@ def set_reservoir_heads(wn, pressure_df):
                 reservoir.head_timeseries.base_value = 1
                 reservoir.head_timeseries.pattern_name = wn.get_pattern(node + "_h0")
             except:
-                print(f"Error setting boundary head values at reservoir {node}. Default values used.")
+                logging.info(f"Error setting boundary head values at reservoir {node}. Default values used.")
 
     return wn, h0
 
@@ -258,7 +261,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
         for idx, link in enumerate(dbv_links):
 
             if any(np.isnan(value).any() for value in dbv_K[idx]):
-                print(f"Error setting DBV settings @ {link}. Default values used.")
+                logging.info(f"Error setting DBV settings @ {link}. Default values used.")
                 dbv_K_idx = dbv_K_default[idx]
             else:
                 dbv_K_idx = dbv_K[idx]
@@ -285,7 +288,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
 
     for idx, link in enumerate(prv_links):
         if any(np.isnan(value).any() for value in prv_settings[idx]):
-            print(f"Error setting PRV settings @ {link}. Default values used.")
+            logging.info(f"Error setting PRV settings @ {link}. Default values used.")
             prv_settings_idx = prv_settings_default[idx]
         else:
             prv_settings_idx = prv_settings[idx]
@@ -341,7 +344,7 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
             has_nan = inflow_df[key].isna().any()
             if has_nan:
                 demand_resolution = 'dma'
-                print(f"Significant periods of missing data for {demand_resolution} demand resolution. Switching to {demand_resolution}demand resolution")
+                logging.info(f"Significant periods of missing data for {demand_resolution} demand resolution. Switching to {demand_resolution}demand resolution")
                 break
 
 
