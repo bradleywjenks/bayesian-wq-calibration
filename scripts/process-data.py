@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 
 # pass script arguments
 parser = argparse.ArgumentParser(description='Process raw time series files to create data periods for model calibration.')
-parser.add_argument('--n_days', type=int, default=7, help='Number of good days for data filtering (default: 7 days).')
+parser.add_argument('--n_days', type=int, default=8, help='Number of good days for data filtering (default: 7 days).')
 args = parser.parse_args()
 
 

@@ -52,9 +52,8 @@ def fitness(wn, cl_df, wall_coeffs, obj_function='mse', grouping='single', bulk_
     wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff)
 
     # simulate water quality dynamics
-    datetime = cl_df['datetime'].unique()
     sim_type = 'chlorine'
-    sim_results = epanet_simulator(wn, sim_type, datetime)
+    sim_results = epanet_simulator(wn, sim_type, cl_df)
 
     # organize chlorine simulation results
     cl_sim = sim_results.chlorine

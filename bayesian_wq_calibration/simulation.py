@@ -5,6 +5,8 @@ import json
 import numpy as np
 import datetime
 import logging
+import warnings
+warnings.filterwarnings("ignore")
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -25,19 +27,18 @@ class SimResults:
     Main model simulation function using EPANET solver
 """
 
-def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
+def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
 
     # 1. build network model
     wn = build_model(flow_df, pressure_df, cl_df, sim_type=sim_type, demand_resolution=demand_resolution, iv_status=iv_status, dbv_status=dbv_status, trace_node=trace_node, grouping=grouping, wall_coeffs=wall_coeffs, bulk_coeff=bulk_coeff, flush_data=flush_data)
 
     # 2. output results as structure
-    datetime = flow_df['datetime'].unique()
-    sim_results = epanet_simulator(wn, sim_type, datetime)
+    sim_results = epanet_simulator(wn, sim_type, cl_df)
 
     return sim_results
 
 
-def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
+def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -52,8 +53,7 @@ def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolu
     wn = scale_demand(wn, flow_df, demand_resolution, flush_data) # NB: remove flushing demands from demand scaling
 
     # 5. assign time information:
-    datetime = flow_df['datetime'].unique()
-    wn = set_simulation_time(wn, datetime)
+    wn = set_simulation_time(wn, cl_df)
 
     # 6. set water quality simulation
     wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff)
@@ -67,9 +67,9 @@ def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolu
     Helper functions to main model simulation function
 """
 
-def set_simulation_time(wn, datetime):
+def set_simulation_time(wn, cl_df):
 
-    datetime = pd.to_datetime(datetime)
+    datetime = pd.to_datetime(cl_df['datetime'].unique())
     time_step = (datetime[1] - datetime[0]).total_seconds()
     total_duration = (datetime.max() - datetime.min()).total_seconds()
 
@@ -86,12 +86,13 @@ def set_simulation_time(wn, datetime):
 
 
 
-def epanet_simulator(wn, sim_type, datetime):
+def epanet_simulator(wn, sim_type, cl_df):
 
+    datetime = pd.to_datetime(cl_df['datetime'].unique())
     wn.convert_controls_to_rules(priority=3)
     results = wntr.sim.EpanetSimulator(wn).run_sim()
     sim_results = SimResults()
-    sim_results.datetime = datetime = pd.to_datetime(datetime)
+    sim_results.datetime = datetime
     sim_results.flow = results.link['flowrate'] * 1000 # convert to Lps
     sim_results.velocity = results.link['velocity']
     sim_results.pressure = results.node['pressure']
@@ -133,7 +134,7 @@ def set_source_cl(wn, cl_df):
 
     reservoir_nodes = wn.reservoir_name_list
     device_id = sensor_model_id('wq')
-    datetime = cl_df['datetime'].unique()
+    datetime = pd.to_datetime(cl_df['datetime'].unique())
 
     cl0 = {}
 
@@ -240,8 +241,8 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     with open(NETWORK_DIR / 'valve_info.json') as f:
         valve_info = json.load(f)
 
-    datetime = flow_df['datetime'].unique()
-    datetime = np.array(datetime, dtype='datetime64[h]')
+    datetime = pd.to_datetime(flow_df['datetime'].unique())
+    # datetime = np.array(datetime, dtype='datetime64[h]')
 
     pressure_device_id = sensor_model_id('pressure')
     flow_device_id = sensor_model_id('flow')
@@ -261,7 +262,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     # set dbv settings
     dbv_links = valve_info['dbv_link']
     if dbv_status == 'active':
-        dbv_K_default = np.where(((datetime.astype('datetime64[h]').astype(int) % 24) < 5) | ((datetime.astype('datetime64[h]').astype(int) % 24) > 21), IV_CLOSE, IV_OPEN_PART)
+        dbv_K_default = np.where(((datetime.hour < 5) | (datetime.hour > 21)), IV_CLOSE, IV_OPEN_PART)
         dbv_K_default = np.tile(dbv_K_default, (2, 1))
         
         dbv_K = get_dbv_settings(wn, flow_df, pressure_df, dbv_links)
@@ -270,15 +271,15 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
 
             if any(np.isnan(value).any() for value in dbv_K[idx]):
                 logging.info(f"Error setting DBV settings @ {link}. Default values used.")
-                dbv_K_idx = dbv_K_default[idx]
+                dbv_K_idx = dbv_K_default[idx] // 1
             else:
-                dbv_K_idx = dbv_K[idx]
+                dbv_K_idx = dbv_K[idx] // 1
 
-            wn.get_link(link).initial_setting = dbv_K_idx[0]
+            wn.get_link(link).initial_setting = 0.0001
             wn.get_link(link).initial_status = "Active"
         
         dbv_controls = []
-        for t in np.arange(1, len(datetime)):
+        for t in np.arange(0, len(datetime)):
             for idx, link in enumerate(dbv_links):
                 valve = wn.get_link(link)
                 dbv_controls = f"{link}_dbv_setting_t_{t/4}"
@@ -297,19 +298,19 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     for idx, link in enumerate(prv_links):
         if any(np.isnan(value).any() for value in prv_settings[idx]):
             logging.info(f"Error setting PRV settings @ {link}. Default values used.")
-            prv_settings_idx = prv_settings_default[idx]
+            prv_settings_idx = prv_settings_default[idx] // 1
         else:
-            prv_settings_idx = prv_settings[idx]
+            prv_settings_idx = prv_settings[idx] // 1 
 
         valve = wn.get_link(link)
         wn.remove_link(link)
         if prv_dir[idx] == 1:
-            wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings_idx[0], initial_status="Active")
+            wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=valve_info['prv_settings'][idx], initial_status="Active")
         elif prv_dir[idx] == -1:
-            wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings_idx[0], initial_status="Active")
+            wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=valve_info['prv_settings'][idx], initial_status="Active")
 
     prv_controls = []
-    for t in np.arange(1, len(datetime)):
+    for t in np.arange(0, len(datetime)):
         for idx, link in enumerate(prv_links):
             valve = wn.get_link(link)
             prv_controls = f"{link}_prv_setting_t_{t/4}"
@@ -324,11 +325,11 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
 
 def scale_demand(wn, flow_df, demand_resolution, flush_data):
 
-    datetime = flow_df['datetime'].unique()
+    datetime = pd.to_datetime(flow_df['datetime'].unique())
     flow_device_id = sensor_model_id('flow')
 
     # compute zonal flow balance
-    inflow_df = pd.DataFrame({'datetime': pd.to_datetime(datetime)}).set_index('datetime')
+    inflow_df = pd.DataFrame({'datetime': datetime}).set_index('datetime')
     has_nan = True
 
     while has_nan:
