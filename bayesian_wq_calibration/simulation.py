@@ -8,7 +8,7 @@ import logging
 import warnings
 warnings.filterwarnings("ignore")
 
-logging.basicConfig(level=logging.WARNING)
+# logging.basicConfig(level=logging.WARNING)
 
 class SimResults:
     def __init__(self):
@@ -89,7 +89,6 @@ def set_simulation_time(wn, cl_df):
 def epanet_simulator(wn, sim_type, cl_df):
 
     datetime = pd.to_datetime(cl_df['datetime'].unique())
-    wn.convert_controls_to_rules(priority=3)
     results = wntr.sim.EpanetSimulator(wn).run_sim()
     sim_results = SimResults()
     sim_results.datetime = datetime
@@ -275,13 +274,12 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
             else:
                 dbv_K_idx = dbv_K[idx] // 1
 
-            wn.get_link(link).initial_setting = 0.0001
+            valve = wn.get_link(link)
+            wn.get_link(link).initial_setting = dbv_K_idx[0]
             wn.get_link(link).initial_status = "Active"
         
-        dbv_controls = []
-        for t in np.arange(0, len(datetime)):
-            for idx, link in enumerate(dbv_links):
-                valve = wn.get_link(link)
+            dbv_controls = []
+            for t in range(len(datetime)):
                 dbv_controls = f"{link}_dbv_setting_t_{t/4}"
                 cond = wntr.network.controls.SimTimeCondition(wn, '=', t*900)  # 900 seconds = 15 minutes
                 act = wntr.network.controls.ControlAction(valve, "setting", dbv_K_idx[t])
@@ -298,21 +296,19 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
     for idx, link in enumerate(prv_links):
         if any(np.isnan(value).any() for value in prv_settings[idx]):
             logging.info(f"Error setting PRV settings @ {link}. Default values used.")
-            prv_settings_idx = prv_settings_default[idx] // 1
+            prv_settings_idx = prv_settings_default[idx]
         else:
-            prv_settings_idx = prv_settings[idx] // 1 
+            prv_settings_idx = prv_settings[idx]
 
         valve = wn.get_link(link)
         wn.remove_link(link)
         if prv_dir[idx] == 1:
-            wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=valve_info['prv_settings'][idx], initial_status="Active")
+            wn.add_valve(link, valve.start_node_name, valve.end_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings_idx[0], initial_status="Active")
         elif prv_dir[idx] == -1:
-            wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=valve_info['prv_settings'][idx], initial_status="Active")
+            wn.add_valve(link, valve.end_node_name, valve.start_node_name, diameter=valve.diameter, valve_type="PRV", minor_loss=0.0001, initial_setting=prv_settings_idx[0], initial_status="Active")
 
-    prv_controls = []
-    for t in np.arange(0, len(datetime)):
-        for idx, link in enumerate(prv_links):
-            valve = wn.get_link(link)
+        prv_controls = []
+        for t in range(len(datetime)):
             prv_controls = f"{link}_prv_setting_t_{t/4}"
             cond = wntr.network.controls.SimTimeCondition(wn, '=', t*900)  # 900 seconds = 15 minutes
             act = wntr.network.controls.ControlAction(valve, "setting", prv_settings_idx[t])
@@ -430,6 +426,8 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
     ##### ADD KNOWN FLUSHING DEMANDS AS ADDITIONAL DEMAND #####
     # insert code here...
 
+    wn.convert_controls_to_rules(priority=3)
+
     return wn
 
 
@@ -518,7 +516,9 @@ def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
             if prv_dir[idx] == 1:
                 node = wn.get_link(link).end_node_name
                 bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
+                print(link, node, bwfl_id)
                 pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
+                print(pressure)
             elif prv_dir[idx] == -1:
                 node = wn.get_link(link).start_node_name
                 bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]

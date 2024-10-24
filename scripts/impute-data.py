@@ -110,7 +110,7 @@ flow_impute_df['quarter'] = flow_impute_df['datetime'].dt.quarter
 flow_impute_df['year'] = flow_impute_df['datetime'].dt.year
 
 # impute missing pressure data
-pressure_impute_df = pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)'])].copy()
+pressure_impute_df = pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)'])].copy()
 pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.strftime('%H:%M')
 pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.hour.astype(float) + pressure_impute_df['datetime'].dt.minute.astype(float) / 60
 pressure_impute_df['time'] = (pressure_impute_df['time'] * 4).round() / 4
@@ -158,41 +158,41 @@ else:
     raise ValueError(f"Invalid imputation method: {args.method}")
 
 flow_df[value_columns] = flow_impute_df[value_columns]
-pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)']), value_columns] = pressure_impute_df[value_columns]
+pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)']), value_columns] = pressure_impute_df[value_columns]
 
 print(flow_df)
 print(pressure_df)
 print(wq_df)
 
-# fig = px.line(
-#     flow_df,
-#     x='datetime',
-#     y='mean',
-#     color='bwfl_id',
-# )
-# fig.update_layout(
-#     xaxis_title='',
-#     yaxis_title='Flow [L/s]',
-#     legend_title_text='',
-#     template='simple_white',
-#     height=450,
-# )
-# fig.show()
+fig = px.line(
+    flow_df,
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Flow [L/s]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
 
-# fig = px.line(
-#     pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)'])],
-#     x='datetime',
-#     y='mean',
-#     color='bwfl_id',
-# )
-# fig.update_layout(
-#     xaxis_title='',
-#     yaxis_title='Pressure [m]',
-#     legend_title_text='',
-#     template='simple_white',
-#     height=450,
-# )
-# fig.show()
+fig = px.line(
+    pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)'])],
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Pressure [m]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
 
 # fig = px.line(
 #     wq_df[wq_df['data_type'] == 'chlorine'],
