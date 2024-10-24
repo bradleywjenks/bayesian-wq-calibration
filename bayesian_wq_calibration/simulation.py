@@ -25,7 +25,19 @@ class SimResults:
     Main model simulation function using EPANET solver
 """
 
-def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.55, flush_data=None):
+def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
+
+    # 1. build network model
+    wn = build_model(flow_df, pressure_df, cl_df, sim_type=sim_type, demand_resolution=demand_resolution, iv_status=iv_status, dbv_status=dbv_status, trace_node=trace_node, grouping=grouping, wall_coeffs=wall_coeffs, bulk_coeff=bulk_coeff, flush_data=flush_data)
+
+    # 2. output results as structure
+    datetime = flow_df['datetime'].unique()
+    sim_results = epanet_simulator(wn, sim_type, datetime)
+
+    return sim_results
+
+
+def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -40,16 +52,13 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
     wn = scale_demand(wn, flow_df, demand_resolution, flush_data) # NB: remove flushing demands from demand scaling
 
     # 5. assign time information:
-    wn = set_simulation_time(wn, flow_df)
+    datetime = flow_df['datetime'].unique()
+    wn = set_simulation_time(wn, datetime)
 
     # 6. set water quality simulation
     wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff)
 
-    # 7. output results as structure
-    sim_results = epanet_simulator(wn, sim_type, flow_df)
-
-    return sim_results
-
+    return wn
 
 
 
@@ -58,9 +67,8 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
     Helper functions to main model simulation function
 """
 
-def set_simulation_time(wn, flow_df):
+def set_simulation_time(wn, datetime):
 
-    datetime = flow_df['datetime'].unique()
     datetime = pd.to_datetime(datetime)
     time_step = (datetime[1] - datetime[0]).total_seconds()
     total_duration = (datetime.max() - datetime.min()).total_seconds()
@@ -78,12 +86,12 @@ def set_simulation_time(wn, flow_df):
 
 
 
-def epanet_simulator(wn, sim_type, flow_df):
+def epanet_simulator(wn, sim_type, datetime):
 
     wn.convert_controls_to_rules(priority=3)
     results = wntr.sim.EpanetSimulator(wn).run_sim()
     sim_results = SimResults()
-    sim_results.datetime = flow_df['datetime'].unique()
+    sim_results.datetime = datetime = pd.to_datetime(datetime)
     sim_results.flow = results.link['flowrate'] * 1000 # convert to Lps
     sim_results.velocity = results.link['velocity']
     sim_results.pressure = results.node['pressure']
@@ -524,12 +532,3 @@ def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
 
 
 
-
-# """"
-#     Function for computing residence time between DMA inlets and water quality sensors 
-# """
-# def compute_residence_time(pressure_df, flow_df, demand_resolution='dma', iv_status='closed', dbv_status='active', trace_node=None, flush_data=None):
-
-#     # insert code here...9O
-
-#     return None

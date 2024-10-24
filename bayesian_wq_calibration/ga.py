@@ -1,4 +1,4 @@
-from bayesian_wq_calibration.simulation import model_simulation, sensor_model_id
+from bayesian_wq_calibration.simulation import epanet_simulator, sensor_model_id, set_reaction_parameters
 import pandas as pd
 import numpy as np
 import random
@@ -8,20 +8,19 @@ from deap import base, creator, tools, algorithms
 """
 Genetic algorithm fitness function
 """
-def evaluate(individual, flow_df, pressure_df, cl_df, grouping):
+def evaluate(individual, wn, cl_df, grouping):
     wall_coeffs = individual
     bulk_coeff = -0.4
     obj_function = 'mse' # 'mse', 'rmse', 'mae', 'mape'
-    demand_resolution = 'wwmd' # 'dma', 'wwmd'
-    fitness_value =  fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function=obj_function, grouping=grouping, demand_resolution=demand_resolution, bulk_coeff=bulk_coeff)
+    fitness_value =  fitness(wn, cl_df, wall_coeffs, obj_function=obj_function, grouping=grouping, bulk_coeff=bulk_coeff)
     return (fitness_value,)
 
 
-def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', grouping='single', bulk_coeff=-0.4, demand_resolution='dma'):
+def fitness(wn, cl_df, wall_coeffs, obj_function='mse', grouping='single', bulk_coeff=-0.4):
 
     # translate decision variables to dict for model simulation
     if grouping == 'single':
-        wall_coeffs_dict = {'single': wall_coeffs[0]}
+        wall_coeffs = {'single': wall_coeffs[0]}
     elif grouping == 'diameter-based':
         wall_coeffs = {
             'less_than_75': wall_coeffs[0],
@@ -49,9 +48,15 @@ def fitness(flow_df, pressure_df, cl_df, wall_coeffs, obj_function='mse', groupi
     else:
         raise ValueError('Wall grouping type is not valid. Please choose from: single, diameter-based, roughness-based, or material-based.')
 
-    # simulate water quality dynamics
-    sim_results = model_simulation(flow_df, pressure_df, cl_df, sim_type='chlorine', demand_resolution=demand_resolution, grouping=grouping, wall_coeffs=wall_coeffs_dict, bulk_coeff=bulk_coeff)
+    # update wq reaction coefficients
+    wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff)
 
+    # simulate water quality dynamics
+    datetime = cl_df['datetime'].unique()
+    sim_type = 'chlorine'
+    sim_results = epanet_simulator(wn, sim_type, datetime)
+
+    # organize chlorine simulation results
     cl_sim = sim_results.chlorine
     sensor_data = sensor_model_id('wq')
     cl_sim = cl_sim[sensor_data['model_id'].unique()]
