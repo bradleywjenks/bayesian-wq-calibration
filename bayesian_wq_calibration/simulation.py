@@ -8,7 +8,7 @@ import logging
 import warnings
 warnings.filterwarnings("ignore")
 
-# logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.WARNING)
 
 class SimResults:
     def __init__(self):
@@ -31,6 +31,7 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
 
     # 1. build network model
     wn = build_model(flow_df, pressure_df, cl_df, sim_type=sim_type, demand_resolution=demand_resolution, iv_status=iv_status, dbv_status=dbv_status, trace_node=trace_node, grouping=grouping, wall_coeffs=wall_coeffs, bulk_coeff=bulk_coeff, flush_data=flush_data)
+    wn.options.hydraulic.accuracy = 1e-3
 
     # 2. output results as structure
     sim_results = epanet_simulator(wn, sim_type, cl_df)
@@ -218,6 +219,7 @@ def set_reservoir_heads(wn, pressure_df):
         bwfl_id = device_id[device_id['model_id'] == node]['bwfl_id'].values[0]
         elev = device_id[device_id['model_id'] == node]['elev'].values[0]
         h0[idx] = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values + elev
+        h0[idx] = np.round(h0[idx], 2)
 
         if np.isnan(h0[idx]).any():
             logging.info(f"Error setting boundary head values at reservoir {node}. Default values used.")
@@ -275,7 +277,7 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
                 dbv_K_idx = dbv_K[idx] // 1
 
             valve = wn.get_link(link)
-            wn.get_link(link).initial_setting = dbv_K_idx[0]
+            wn.get_link(link).initial_setting = 1e-4
             wn.get_link(link).initial_status = "Active"
         
             dbv_controls = []
@@ -299,6 +301,8 @@ def set_control_settings(wn, flow_df, pressure_df, iv_status, dbv_status):
             prv_settings_idx = prv_settings_default[idx]
         else:
             prv_settings_idx = prv_settings[idx]
+
+        prv_settings_idx = np.round(prv_settings_idx, 2)
 
         valve = wn.get_link(link)
         wn.remove_link(link)
@@ -516,9 +520,7 @@ def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
             if prv_dir[idx] == 1:
                 node = wn.get_link(link).end_node_name
                 bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
-                print(link, node, bwfl_id)
                 pressure = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
-                print(pressure)
             elif prv_dir[idx] == -1:
                 node = wn.get_link(link).start_node_name
                 bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]

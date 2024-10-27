@@ -1,5 +1,5 @@
 """
-This script imputes missing values in flow_df and boundary heads in pressure_df for the entire dataset.
+This script imputes missing values in flow_df and pressure_df (for boundary and control valve sensors) for the entire dataset.
 """
 
 import pandas as pd
@@ -83,13 +83,18 @@ wq_df = fill_missing_rows(
 )
 
 
-#  drop outlier flow data
+# drop outlier flow data
 for sensor in flow_df['bwfl_id'].unique():
-    outlier_thresh_high = flow_df[flow_df['bwfl_id'] == sensor]['mean'].quantile(0.995)
-    outlier_thresh_low = flow_df[flow_df['bwfl_id'] == sensor]['mean'].quantile(0.005)
-
+    outlier_thresh_high = flow_df[flow_df['bwfl_id'] == sensor]['mean'].quantile(0.99)
+    outlier_thresh_low = flow_df[flow_df['bwfl_id'] == sensor]['mean'].quantile(0.01)
     flow_df.loc[(flow_df['bwfl_id'] == sensor) & ((flow_df['mean'] == 0) | (flow_df['mean'] >= outlier_thresh_high) | (flow_df['mean'] <= outlier_thresh_low)), ['min', 'mean', 'max']] = np.nan
 
+# drop outlier pressure data
+for sensor in pressure_df['bwfl_id'].unique():
+    outlier_thresh_high = pressure_df[pressure_df['bwfl_id'] == sensor]['mean'].quantile(0.99)
+    outlier_thresh_low = pressure_df[pressure_df['bwfl_id'] == sensor]['mean'].quantile(0.01)
+    pressure_df.loc[(pressure_df['bwfl_id'] == sensor) & ((pressure_df['mean'] < 2) | (pressure_df['mean'] >= outlier_thresh_high) | (pressure_df['mean'] <= outlier_thresh_low)), ['min', 'mean', 'max']] = np.nan
+pressure_df.loc[(pressure_df['bwfl_id'] == 'Lodge Causeway PRV (outlet)') & (pressure_df['mean'] < 10), ['min', 'mean', 'max']] = np.nan
 
 # check missing data
 for sensor in pressure_df['bwfl_id'].unique():
@@ -110,7 +115,7 @@ flow_impute_df['quarter'] = flow_impute_df['datetime'].dt.quarter
 flow_impute_df['year'] = flow_impute_df['datetime'].dt.year
 
 # impute missing pressure data
-pressure_impute_df = pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)'])].copy()
+pressure_impute_df = pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road DBV (inlet)', 'Snowden Road DBV (outlet)', 'New Station Way DBV (inlet)', 'New Station Way DBV (outlet)'])].copy()
 pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.strftime('%H:%M')
 pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.hour.astype(float) + pressure_impute_df['datetime'].dt.minute.astype(float) / 60
 pressure_impute_df['time'] = (pressure_impute_df['time'] * 4).round() / 4
@@ -158,11 +163,7 @@ else:
     raise ValueError(f"Invalid imputation method: {args.method}")
 
 flow_df[value_columns] = flow_impute_df[value_columns]
-pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)']), value_columns] = pressure_impute_df[value_columns]
-
-print(flow_df)
-print(pressure_df)
-print(wq_df)
+pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road DBV (inlet)', 'Snowden Road DBV (outlet)', 'New Station Way DBV (inlet)', 'New Station Way DBV (outlet)']), value_columns] = pressure_impute_df[value_columns]
 
 fig = px.line(
     flow_df,
@@ -180,7 +181,7 @@ fig.update_layout(
 fig.show()
 
 fig = px.line(
-    pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)'])],
+    pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road DBV (inlet)', 'Snowden Road DBV (outlet)', 'New Station Way DBV (inlet)', 'New Station Way DBV (outlet)'])],
     x='datetime',
     y='mean',
     color='bwfl_id',
