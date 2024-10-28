@@ -3,7 +3,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / 'data/'
 NETWORK_DIR = DATA_DIR / 'network/'
-RESULTS_DIR = DATA_DIR / 'results/'
+RESULTS_DIR = BASE_DIR / 'results/'
 DEVICE_DIR = DATA_DIR / 'devices/'
 TIMESERIES_DIR = DATA_DIR / 'timeseries/'
 INP_FILE = 'BWFLnet_2023_04.inp'

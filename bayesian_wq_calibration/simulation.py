@@ -177,31 +177,31 @@ def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
         material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
-                material = material_df[material_df['model_id'] == name]['material']
-                if material in ['CI', 'SI', 'Pb', 'DI', 'ST']:
+                material = material_df[material_df['model_id'] == name]['material'].values
+                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST']:
                     link.wall_coeff = wall_coeffs['metallic']/3600/24
-                elif material in ['AC']:
+                elif material[0] in ['AC']:
                     link.wall_coeff = wall_coeffs['cement']/3600/24
-                elif material in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']:
-                    link.wall_coeff = wall_coeffs['plactic_unknown']/3600/24
+                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']:
+                    link.wall_coeff = wall_coeffs['plastic_unknown']/3600/24
 
     elif grouping == 'material-diameter':
         material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
-                material = material_df[material_df['model_id'] == name]['material']
-                if material in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 < 150:
+                material = material_df[material_df['model_id'] == name]['material'].values
+                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 < 150:
                     link.wall_coeff = wall_coeffs['metallic_less_than_150']/3600/24
-                if material in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 >= 150:
+                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 >= 150:
                     link.wall_coeff = wall_coeffs['metallic_greater_than_150']/3600/24
-                elif material in ['AC'] and link.diameter * 1000 < 150:
+                elif material[0] in ['AC'] and link.diameter * 1000 < 150:
                     link.wall_coeff = wall_coeffs['cement_less_than_150']/3600/24
-                elif material in ['AC'] and link.diameter * 1000 >= 150:
+                elif material[0] in ['AC'] and link.diameter * 1000 >= 150:
                     link.wall_coeff = wall_coeffs['cement_greater_than_150']/3600/24
-                elif material in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 < 150:
-                    link.wall_coeff = wall_coeffs['plactic_unknown_less_than_150']/3600/24
-                elif material in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 >= 150:
-                    link.wall_coeff = wall_coeffs['plactic_unknown_greater_than_150']/3600/24
+                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 < 150:
+                    link.wall_coeff = wall_coeffs['plastic_unknown_less_than_150']/3600/24
+                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 >= 150:
+                    link.wall_coeff = wall_coeffs['plastic_unknown_greater_than_150']/3600/24
 
     elif grouping == 'roughness':
         for name, link in wn.links():

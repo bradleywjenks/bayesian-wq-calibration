@@ -37,14 +37,14 @@ def fitness(wn, cl_df, wall_coeffs, obj_function, grouping, bulk_coeff):
 
     # compute and return fitness value
     bwfl_ids = [sensor for sensor in sensor_data['bwfl_id'].unique() if sensor not in ['BW1', 'BW4']]
-    datetime = cl_df['datetime'].unique()
+    datetime = cl_df['datetime'].unique()[96:]
 
     if obj_function == 'mse':
         mse = 0
-        for name in bwfl_ids:
+        for name in bwfl_ids:   
             sim = cl_sim[name].values
             data = cl_df.loc[cl_df['bwfl_id'] == name, 'mean'].values
-            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 4 * 24)
+            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 96)
             mse += (1 / (len(datetime) * len(bwfl_ids))) * np.sum((sim[mask] - data[mask]) ** 2)
         obj_val = mse
 
@@ -53,7 +53,7 @@ def fitness(wn, cl_df, wall_coeffs, obj_function, grouping, bulk_coeff):
         for name in bwfl_ids:
             sim = cl_sim[name].values
             data = cl_df.loc[cl_df['bwfl_id'] == name, 'mean'].values
-            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 4 * 24)
+            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 96)
             rmse += (1 / (len(datetime) * len(bwfl_ids))) * np.sum((sim[mask] - data[mask]) ** 2)
         rmse = np.sqrt(rmse)
         obj_val = rmse
@@ -63,7 +63,7 @@ def fitness(wn, cl_df, wall_coeffs, obj_function, grouping, bulk_coeff):
         for name in bwfl_ids:
             sim = cl_sim[name].values
             data = cl_df.loc[cl_df['bwfl_id'] == name, 'mean'].values
-            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 4 * 24)
+            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 96)
             mae += (1 / (len(datetime) * len(bwfl_ids))) * np.sum(np.abs(sim[mask] - data[mask]))
         obj_val = mae
     
@@ -72,7 +72,7 @@ def fitness(wn, cl_df, wall_coeffs, obj_function, grouping, bulk_coeff):
         for name in bwfl_ids:
             sim = cl_sim[name].values
             data = cl_df.loc[cl_df['bwfl_id'] == name, 'mean'].values
-            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 4 * 24)
+            mask = ~np.isnan(sim) & ~np.isnan(data) & (np.arange(len(sim)) >= 96)
             mape += (1 / (len(datetime) * len(bwfl_ids))) * np.sum(np.abs((sim[mask] - data[mask]) / data[mask]))
         mape *= 100
         obj_val = mape
