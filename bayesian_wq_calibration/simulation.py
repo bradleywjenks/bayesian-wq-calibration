@@ -27,7 +27,7 @@ class SimResults:
     Main model simulation function using EPANET solver
 """
 
-def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
+def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.3}, bulk_coeff=-0.5, flush_data=None):
 
     # 1. build network model
     wn = build_model(flow_df, pressure_df, cl_df, sim_type=sim_type, demand_resolution=demand_resolution, iv_status=iv_status, dbv_status=dbv_status, trace_node=trace_node, grouping=grouping, wall_coeffs=wall_coeffs, bulk_coeff=bulk_coeff, flush_data=flush_data)
@@ -39,7 +39,7 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
     return sim_results
 
 
-def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.05}, bulk_coeff=-0.4, flush_data=None):
+def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.3}, bulk_coeff=-0.5, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -88,6 +88,8 @@ def set_simulation_time(wn, cl_df):
 
 
 def epanet_simulator(wn, sim_type, cl_df):
+
+    # print('Simulating!')
 
     datetime = pd.to_datetime(cl_df['datetime'].unique())
     results = wntr.sim.EpanetSimulator(wn).run_sim()
@@ -166,24 +168,42 @@ def set_source_cl(wn, cl_df):
 
 def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
 
-    wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # units = 1/second (GET FROM BW)
+    wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
 
     if grouping == 'single':
-        wn.options.reaction.wall_coeff = (wall_coeffs['single']/3600/24) # units = 1/second
+        wn.options.reaction.wall_coeff = (wall_coeffs['single']/3600/24)
 
-    elif grouping == 'diameter-based':
+    elif grouping == 'material':
+        material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
-                if link.diameter * 1000 < 75:
-                    link.wall_coeff = wall_coeffs['less_than_75']/3600/24
-                elif 75 <= link.diameter * 1000 < 150:
-                    link.wall_coeff = wall_coeffs['between_75_and_150']/3600/24
-                elif 150 <= link.diameter * 1000 < 250:
-                    link.wall_coeff = wall_coeffs['between_150_and_250']/3600/24
-                elif 250 <= link.diameter * 1000:
-                    link.wall_coeff = wall_coeffs['greater_than_250']/3600/24
+                material = material_df[material_df['model_id'] == name]['material']
+                if material in ['CI', 'SI', 'Pb', 'DI', 'ST']:
+                    link.wall_coeff = wall_coeffs['metallic']/3600/24
+                elif material in ['AC']:
+                    link.wall_coeff = wall_coeffs['cement']/3600/24
+                elif material in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']:
+                    link.wall_coeff = wall_coeffs['plactic_unknown']/3600/24
 
-    elif grouping == 'roughness-based':
+    elif grouping == 'material-diameter':
+        material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
+        for name, link in wn.links():
+            if isinstance(link, wntr.network.Pipe):
+                material = material_df[material_df['model_id'] == name]['material']
+                if material in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 < 150:
+                    link.wall_coeff = wall_coeffs['metallic_less_than_150']/3600/24
+                if material in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 >= 150:
+                    link.wall_coeff = wall_coeffs['metallic_greater_than_150']/3600/24
+                elif material in ['AC'] and link.diameter * 1000 < 150:
+                    link.wall_coeff = wall_coeffs['cement_less_than_150']/3600/24
+                elif material in ['AC'] and link.diameter * 1000 >= 150:
+                    link.wall_coeff = wall_coeffs['cement_greater_than_150']/3600/24
+                elif material in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 < 150:
+                    link.wall_coeff = wall_coeffs['plactic_unknown_less_than_150']/3600/24
+                elif material in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 >= 150:
+                    link.wall_coeff = wall_coeffs['plactic_unknown_greater_than_150']/3600/24
+
+    elif grouping == 'roughness':
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
                 if link.roughness < 50:
