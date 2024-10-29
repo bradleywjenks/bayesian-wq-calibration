@@ -98,21 +98,17 @@ def decision_variables_to_dict(grouping, wall_coeffs):
         wall_coeffs = {
             'metallic_less_than_150': wall_coeffs[0],
             'metallic_greater_than_150': wall_coeffs[1],
-            'cement_less_than_150': wall_coeffs[2],
-            'cement_greater_than_150': wall_coeffs[3],
-            'plastic_unknown_less_than_150': wall_coeffs[4],
-            'plastic_unknown_greater_than_150': wall_coeffs[5],
+            'cement': wall_coeffs[2],
+            'plastic_unknown': wall_coeffs[3],
         }
     elif grouping == 'roughness':
         wall_coeffs = {
             'less_than_50': wall_coeffs[0],
-            'between_50_and_55': wall_coeffs[1],
-            'between_55_and_65': wall_coeffs[2],
-            'between_65_and_80': wall_coeffs[3],
-            'between_80_and_100': wall_coeffs[4],
-            'between_100_and_120': wall_coeffs[5],
-            'between_120_and_138': wall_coeffs[6],
-            'greater_than_138': wall_coeffs[7],
+            'between_50_and_65': wall_coeffs[1],
+            'between_65_and_80': wall_coeffs[2],
+            'between_80_and_100': wall_coeffs[3],
+            'between_100_and_120': wall_coeffs[4],
+            'greater_than_120': wall_coeffs[5],
         }
     else:
         raise ValueError('Wall grouping type is not valid. Please choose from: single, material, material-diameter, or roughness.')

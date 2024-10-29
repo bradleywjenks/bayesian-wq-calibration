@@ -192,36 +192,28 @@ def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
                 material = material_df[material_df['model_id'] == name]['material'].values
                 if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 < 150:
                     link.wall_coeff = wall_coeffs['metallic_less_than_150']/3600/24
-                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 >= 150:
+                elif material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 >= 150:
                     link.wall_coeff = wall_coeffs['metallic_greater_than_150']/3600/24
-                elif material[0] in ['AC'] and link.diameter * 1000 < 150:
-                    link.wall_coeff = wall_coeffs['cement_less_than_150']/3600/24
-                elif material[0] in ['AC'] and link.diameter * 1000 >= 150:
-                    link.wall_coeff = wall_coeffs['cement_greater_than_150']/3600/24
-                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 < 150:
-                    link.wall_coeff = wall_coeffs['plastic_unknown_less_than_150']/3600/24
-                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and link.diameter * 1000 >= 150:
-                    link.wall_coeff = wall_coeffs['plastic_unknown_greater_than_150']/3600/24
+                elif material[0] in ['AC']:
+                    link.wall_coeff = wall_coeffs['cement']/3600/24
+                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']:
+                    link.wall_coeff = wall_coeffs['plastic_unknown']/3600/24
 
     elif grouping == 'roughness':
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
                 if link.roughness < 50:
                     link.wall_coeff = (wall_coeffs['less_than_50']/3600/24)
-                elif 50 <= link.roughness < 55:
-                    link.wall_coeff = (wall_coeffs['between_50_and_55']/3600/24)
-                elif 55 <= link.roughness < 65:
-                    link.wall_coeff = (wall_coeffs['between_55_and_65']/3600/24)
+                elif 50 <= link.roughness < 65:
+                    link.wall_coeff = (wall_coeffs['between_50_and_65']/3600/24)
                 elif 65 <= link.roughness < 80:
                     link.wall_coeff = (wall_coeffs['between_65_and_80']/3600/24)
                 elif 80 <= link.roughness < 100:
                     link.wall_coeff = (wall_coeffs['between_80_and_100']/3600/24)
                 elif 100 <= link.roughness < 120:
                     link.wall_coeff = (wall_coeffs['between_100_and_120']/3600/24)
-                elif 120 <= link.roughness < 138:
-                    link.wall_coeff = (wall_coeffs['between_120_and_138']/3600/24)
-                elif 138 <= link.roughness:
-                    link.wall_coeff = (wall_coeffs['greater_than_138']/3600/24)
+                elif 120 <= link.roughness:
+                    link.wall_coeff = (wall_coeffs['greater_than_120']/3600/24)
 
     return wn
 
