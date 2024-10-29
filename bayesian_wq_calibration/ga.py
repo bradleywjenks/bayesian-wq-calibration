@@ -10,18 +10,18 @@ Genetic algorithm fitness function
 """
 def evaluate(individual, wn, cl_df, grouping):
     wall_coeffs = individual
-    bulk_coeff = -0.5 # from BW
     obj_function = 'mse' # 'mse', 'rmse', 'mae', 'mape'
-    fitness_value =  fitness(wn, cl_df, wall_coeffs, obj_function, grouping, bulk_coeff)
+    fitness_value =  fitness(wn, cl_df, wall_coeffs, obj_function, grouping)
     return (fitness_value,)
 
 
-def fitness(wn, cl_df, wall_coeffs, obj_function, grouping, bulk_coeff):
+def fitness(wn, cl_df, wall_coeffs, obj_function, grouping):
 
     # translate decision variables to dict for model simulation
     wall_coeffs = decision_variables_to_dict(grouping, wall_coeffs)
 
     # update wq reaction coefficients
+    bulk_coeff = wn.options.reaction.bulk_coeff * 3600 * 24
     wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff)
 
     # simulate water quality dynamics

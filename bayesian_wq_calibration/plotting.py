@@ -229,7 +229,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
             fig.add_trace(edge_trace)
         
         fig.update_layout(
-            legend_title_text=f'Grouping: {grouping}'
+            legend_title_text=f'{grouping} grouping'
         )
     
     else:

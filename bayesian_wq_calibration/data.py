@@ -237,3 +237,17 @@ def count_turbidity_events(threshold=2, N=19):
     count_df.reset_index(drop=True, inplace=True)
 
     return count_df
+
+
+
+
+"""
+Bulk water testing functions
+"""
+def bulk_temp_adjust(bulk_coeff, field_temp):
+    test_temp = 20 + 273.15 # test temperature (change accordingly)
+    field_temp = field_temp + 273.15
+    Ea_R_ratio = 6000 # ratio of activation energy to ideal gas constant for chlorine decay in water networks (AWWARF, 1996)
+    bulk_adjust = bulk_coeff * np.exp((-Ea_R_ratio * (test_temp - field_temp)) / (test_temp * field_temp))
+
+    return bulk_adjust
