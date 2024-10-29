@@ -115,7 +115,7 @@ flow_impute_df['quarter'] = flow_impute_df['datetime'].dt.quarter
 flow_impute_df['year'] = flow_impute_df['datetime'].dt.year
 
 # impute missing pressure data
-pressure_impute_df = pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road DBV (inlet)', 'Snowden Road DBV (outlet)', 'New Station Way DBV (inlet)', 'New Station Way DBV (outlet)'])].copy()
+pressure_impute_df = pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road PRV (inlet)', 'Snowden Road PRV (outlet)', 'New Station Way PRV (inlet)', 'New Station Way PRV (outlet)'])].copy()
 pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.strftime('%H:%M')
 pressure_impute_df['time'] = pressure_impute_df['datetime'].dt.hour.astype(float) + pressure_impute_df['datetime'].dt.minute.astype(float) / 60
 pressure_impute_df['time'] = (pressure_impute_df['time'] * 4).round() / 4
@@ -163,7 +163,7 @@ else:
     raise ValueError(f"Invalid imputation method: {args.method}")
 
 flow_df[value_columns] = flow_impute_df[value_columns]
-pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road DBV (inlet)', 'Snowden Road DBV (outlet)', 'New Station Way DBV (inlet)', 'New Station Way DBV (outlet)']), value_columns] = pressure_impute_df[value_columns]
+pressure_df.loc[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road PRV (inlet)', 'Snowden Road PRV (outlet)', 'New Station Way PRV (inlet)', 'New Station Way PRV (outlet)']), value_columns] = pressure_impute_df[value_columns]
 
 fig = px.line(
     flow_df,
@@ -181,7 +181,7 @@ fig.update_layout(
 fig.show()
 
 fig = px.line(
-    pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road DBV (inlet)', 'Snowden Road DBV (outlet)', 'New Station Way DBV (inlet)', 'New Station Way DBV (outlet)'])],
+    pressure_df[pressure_df['bwfl_id'].isin(['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road PRV (inlet)', 'Snowden Road PRV (outlet)', 'New Station Way PRV (inlet)', 'New Station Way PRV (outlet)'])],
     x='datetime',
     y='mean',
     color='bwfl_id',
