@@ -1,4 +1,5 @@
-from bayesian_wq_calibration.simulation import epanet_simulator, sensor_model_id, set_reaction_parameters
+from bayesian_wq_calibration.epanet import epanet_simulator, set_reaction_parameters
+from bayesian_wq_calibration.data import sensor_model_id
 import pandas as pd
 import numpy as np
 import random

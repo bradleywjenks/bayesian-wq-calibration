@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
-from bayesian_wq_calibration.simulation import sensor_model_id
+from bayesian_wq_calibration.epanet import sensor_model_id
 from bayesian_wq_calibration.data import load_network_data
 from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE
 

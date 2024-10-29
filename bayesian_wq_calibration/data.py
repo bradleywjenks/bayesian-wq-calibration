@@ -4,8 +4,7 @@ import numpy as np
 import scipy.sparse as sp
 from pydantic import BaseModel
 from typing import Any
-from bayesian_wq_calibration.simulation import sensor_model_id
-from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR
+from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, DEVICE_DIR
 
 
 class WDN(BaseModel):
@@ -14,6 +13,8 @@ class WDN(BaseModel):
     net_info: dict
     link_df: pd.DataFrame
     node_df: pd.DataFrame
+    demand_df: pd.DataFrame
+    h0_df: pd.DataFrame
 
     class Config:
         arbitrary_types_allowed = True
@@ -21,7 +22,7 @@ class WDN(BaseModel):
 
 
 """
-Load network data via wntr
+Network functions
 """ 
 def load_network_data(inp_file):
 
@@ -119,9 +120,24 @@ def load_network_data(inp_file):
         
     junction_idx = node_df.index[node_df['node_ID'].isin(net_info['junction_names'])].tolist()
     reservoir_idx = node_df.index[node_df['node_ID'].isin(net_info['reservoir_names'])].tolist()
-
     A12 = A[:, junction_idx]; A12 = sp.csr_matrix(A12) # link-junction incident matrix
     A10 = A[:, reservoir_idx]; A10 = sp.csr_matrix(A10) # link-reservoir indicent matrix
+
+    # extract demand data
+    demand_df = results.node['demand'].T
+    col_names = [f'demands_{t}' for t in range(1, len(demand_df.columns)+1)]
+    demand_df.columns = col_names
+    demand_df.reset_index(drop=False, inplace=True)
+    demand_df = demand_df.rename(columns={'name': 'node_ID'})
+    demand_df = demand_df[~demand_df['node_ID'].isin(net_info['reservoir_names'])] # delete reservoir nodes
+
+    # extract boundary data
+    h0_df = results.node['head'].T
+    col_names = [f'h0_{t}' for t in range(1, len(h0_df.columns)+1)]
+    h0_df.columns = col_names
+    h0_df.reset_index(drop=False, inplace=True)
+    h0_df = h0_df.rename(columns={'name': 'node_ID'})
+    h0_df = h0_df[h0_df['node_ID'].isin(net_info['reservoir_names'])] # only reservoir nodes
 
     # load data to WDN object
     wdn = WDN(
@@ -130,10 +146,47 @@ def load_network_data(inp_file):
             net_info=net_info,
             link_df=link_df,
             node_df=node_df,
+            demand_df=demand_df,
+            h0_df=h0_df
     )
 
     return wdn
 
+
+
+def sensor_model_id(device_type):
+
+    node_mapping = pd.read_excel(NETWORK_DIR / 'InfoWorks_to_EPANET_mapping.xlsx', sheet_name='Nodes')
+    link_mapping = pd.read_excel(NETWORK_DIR / 'InfoWorks_to_EPANET_mapping.xlsx', sheet_name='Links')
+
+    if device_type == 'pressure':
+        device_df = pd.read_excel(DEVICE_DIR / 'pressure_device_database.xlsx')
+        element_type = 'node'
+        device_id = device_df[['BWFL ID', 'Asset ID', 'DMA ID', 'Final Elevation (m)']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'DMA ID': 'dma_id', 'Final Elevation (m)': 'elev'}, inplace=True)
+        device_id = device_id[device_id['dma_id'].isin([2296, 2005])]
+    elif device_type == 'flow':
+        device_df = pd.read_excel(DEVICE_DIR / 'flow_device_database.xlsx')
+        element_type = 'link'
+        device_id = device_df[['BWFL ID', 'Asset ID', 'DMA ID']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'DMA ID': 'dma_id'}, inplace=True)
+    elif device_type == 'wq':
+        device_df = pd.read_excel(DEVICE_DIR / 'wq_device_database.xlsx')
+        element_type = 'node'
+        device_id = device_df[['BWFL ID', 'Asset ID']].drop_duplicates(subset=['BWFL ID'])
+        device_id.rename(columns={'BWFL ID': 'bwfl_id', 'Asset ID': 'asset_id', 'DMA ID': 'dma_id'}, inplace=True)
+
+    device_id['asset_id'] = device_id['asset_id'].astype(str)
+    
+    if element_type == 'node':
+        mapping_dict = node_mapping.set_index('InfoWorks Node ID')['EPANET Node ID'].to_dict()
+        device_id['model_id'] = device_id['asset_id'].map(mapping_dict)
+    elif element_type == 'link':
+        mapping_dict = link_mapping.set_index('InfoWorks Link ID')['EPANET Link ID'].to_dict()
+        device_id['model_id'] = device_id['asset_id'].map(mapping_dict)
+
+
+    return device_id
 
 
 
@@ -242,7 +295,7 @@ def count_turbidity_events(threshold=2, N=19):
 
 
 """
-Bulk water testing functions
+Bulk water testing function
 """
 def bulk_temp_adjust(bulk_coeff, field_temp):
     test_temp = 20 + 273.15 # test temperature (change accordingly)
@@ -251,3 +304,7 @@ def bulk_temp_adjust(bulk_coeff, field_temp):
     bulk_adjust = bulk_coeff * np.exp((-Ea_R_ratio * (test_temp - field_temp)) / (test_temp * field_temp))
 
     return bulk_adjust
+
+
+
+

@@ -7,7 +7,8 @@ import numpy as np
 from pathlib import Path
 import argparse
 import json
-from bayesian_wq_calibration.simulation import model_simulation, sensor_model_id
+from bayesian_wq_calibration.epanet import model_simulation
+from bayesian_wq_calibration.data import sensor_model_id
 from bayesian_wq_calibration.constants import TIMESERIES_DIR
 import plotly.express as px
 from dtaidistance import dtw
@@ -129,7 +130,7 @@ def shift_time_series_dtw(cl_df, series_1, series_2, bwfl_id, mean_age_after_1_d
 
 
 ### Check data satisfies expected directional conditions based on network hydraulics ###
-N = 19 # 19 data periods
+N = 20 # 20 data periods
 for idx in range(1, N+1):
 
     print(f"Checking time series for data period {idx}...")
