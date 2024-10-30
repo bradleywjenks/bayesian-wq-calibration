@@ -35,7 +35,6 @@ net_info = wdn.net_info
 link_df = wdn.link_df
 node_df = wdn.node_df
 demand_df = wdn.demand_df
-h0_df = wdn.h0_df
 C0 = link_df['C'].values
 
 
@@ -155,7 +154,69 @@ for idx, node in enumerate(reservoir_nodes):
 
 
 ###### STEP 5: scale demands ######
-# insert code here...
+num_days = int(len(datetime) / 96)
+node_mapping = pd.read_excel(NETWORK_DIR / 'InfoWorks_to_EPANET_mapping.xlsx', sheet_name='Nodes')
+
+d0 = demand_df.iloc[:, 1:].values
+repeated_d0 = np.tile(d0, (1, num_days))
+new_column_names = [f"demands_{i}" for i in range(1, repeated_d0.shape[1]+1)]
+repeated_d0_df = pd.DataFrame(repeated_d0, columns=new_column_names)
+repeated_d0_df['node_id'] = demand_df['node_ID']
+repeated_d0_df['dma_id'] = None
+repeated_d0_df['wwmd_id'] = None
+for node in demand_df['node_ID']:
+    repeated_d0_df.loc[repeated_d0_df['node_id'] == node, 'dma_id'] = str(node_mapping[node_mapping['EPANET Node ID'] == node]['DMA ID'].values[0])
+    repeated_d0_df.loc[repeated_d0_df['node_id'] == node, 'wwmd_id'] = str(node_mapping[node_mapping['EPANET Node ID'] == node]['WWMD ID'].values[0])
+
+columns_order = ['node_id', 'dma_id', 'wwmd_id'] + new_column_names
+repeated_d0_df = repeated_d0_df[columns_order]
+
+demand_resolution = 'wwmd' # 'wwmd' or 'dma'
+inflow_df = pd.DataFrame({'datetime': datetime}).set_index('datetime')
+has_nan = True
+while has_nan:
+    if demand_resolution == 'dma':
+        with open(NETWORK_DIR / 'flow_balance_dma.json') as f:
+            flow_balance = json.load(f)
+    elif demand_resolution == 'wwmd':
+        with open(NETWORK_DIR / 'flow_balance_wwmd.json') as f:
+            flow_balance = json.load(f)
+
+    for key, values in flow_balance.items():
+        inflow_sum = pd.Series(0, index=inflow_df.index)
+        for sensor in values['flow_in']:
+            inflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
+        outflow_sum = pd.Series(0, index=inflow_df.index)
+        for sensor in values['flow_out']:
+            outflow_sum += flow_df[flow_df['bwfl_id'] == sensor]['mean'].values
+        
+        inflow_df[key] = inflow_sum - outflow_sum
+        has_nan = inflow_df[key].isna().any()
+        if has_nan:
+            demand_resolution = 'dma'
+            print(f"Significant periods of missing data for {demand_resolution} demand resolution. Switching to {demand_resolution} demand resolution")
+            break
+
+scaled_demand_df = repeated_d0_df.copy()
+for key in flow_balance.keys():
+    if demand_resolution == 'dma':
+        filtered_rows = repeated_d0_df[repeated_d0_df['dma_id'] == str(key)].index
+    elif demand_resolution == 'wwmd':
+        filtered_rows = repeated_d0_df[repeated_d0_df['wwmd_id'] == str(key)].index
+
+    total_base_demand = repeated_d0_df.loc[filtered_rows, repeated_d0_df.columns[3:]].sum(axis=0)
+    scaling_factor = inflow_df[key].values / total_base_demand.values
+
+    for idx in range(total_base_demand.shape[0]):
+        demand_col_name = f'demands_{idx+1}'
+        scaled_demand_df.loc[filtered_rows, demand_col_name] = repeated_d0_df.loc[filtered_rows, demand_col_name] * scaling_factor[idx]
+
+    total_scaled_demand = scaled_demand_df.loc[filtered_rows, scaled_demand_df.columns[3:]].sum(axis=0).values
+    total_inflow = inflow_df[key].values
+
+    assert np.isclose(total_scaled_demand.sum(), total_inflow.sum()), f"Mismatch for zone {key}: {total_scaled_demand.sum()} != {total_inflow.sum()}"
+
+d = scaled_demand_df.iloc[:, 3:].values
 
 
 
@@ -165,7 +226,6 @@ prv_dir = valve_info['prv_dir']
 prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
 eta = []
 for idx, link in enumerate(prv_links):
-    print(link)
     if prv_dir[idx] == 1:
         start_node = link_df[link_df['link_ID'] == link]['node_out'].values[0]
         end_node = link_df[link_df['link_ID'] == link]['node_in'].values[0]
@@ -195,27 +255,25 @@ for idx, link in enumerate(prv_links):
 
     else:
         start_bwfl_id = pressure_device_id[pressure_device_id['model_id'] == str(start_node)]['bwfl_id'].values[0]
-        print(start_bwfl_id)
         start_pressure = pressure_df[pressure_df['bwfl_id'] == start_bwfl_id]['mean'].values
         end_bwfl_id = pressure_device_id[pressure_device_id['model_id'] == end_node]['bwfl_id'].values[0]
-        print(end_bwfl_id)
         end_pressure = pressure_df[pressure_df['bwfl_id'] == end_bwfl_id]['mean'].values
 
     eta.append(start_pressure - end_pressure)
 
-fig = go.Figure()
-for i, local_losses in enumerate(eta):
-    fig.add_trace(go.Scatter(
-        x=datetime,
-        y=local_losses,
-        mode='lines',
-        name=prv_links[i]
-    ))
-fig.update_layout(
-    xaxis_title='',
-    yaxis_title=r'$\eta \;\, \text{[m]}$',
-    legend_title_text='',
-    template='simple_white',
-    height=450,
-)
-fig.show()
+# fig = go.Figure()
+# for i, local_losses in enumerate(eta):
+#     fig.add_trace(go.Scatter(
+#         x=datetime,
+#         y=local_losses,
+#         mode='lines',
+#         name=prv_links[i]
+#     ))
+# fig.update_layout(
+#     xaxis_title='',
+#     yaxis_title=r'$\eta \;\, \text{[m]}$',
+#     legend_title_text='',
+#     template='simple_white',
+#     height=450,
+# )
+# fig.show()

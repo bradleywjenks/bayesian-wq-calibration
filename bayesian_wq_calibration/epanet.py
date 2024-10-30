@@ -366,7 +366,7 @@ def scale_demand(wn, flow_df, demand_resolution, flush_data):
             has_nan = inflow_df[key].isna().any()
             if has_nan:
                 demand_resolution = 'dma'
-                logging.info(f"Significant periods of missing data for {demand_resolution} demand resolution. Switching to {demand_resolution}demand resolution")
+                logging.info(f"Significant periods of missing data for {demand_resolution} demand resolution. Switching to {demand_resolution} demand resolution")
                 break
 
 
