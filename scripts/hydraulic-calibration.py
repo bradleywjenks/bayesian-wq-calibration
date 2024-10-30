@@ -6,22 +6,26 @@ This script calibrates the Field Lab's hydraulic model using flow and pressure d
     4. assign boundary heads from BWFL 19 and Woodland Way PRV (inlet)
     5. scale demands based on flow balance (DMA or WWMD resolution)
     6. get control valve losses (PRV + DBV links)
-    7. pipe grouping
-    8. get pressure and flow data: time series + model ID
-    9. calibrate HW coefficients via SCP algorithm
+    7. split test/train data for h0, d, C_dbv, and eta
+    8. compute initial hydraulics
+    9. get pressure and flow data: time series + model ID and check initial model performance
+    10. get pipe grouping
+    11. calibrate HW coefficients via SCP algorithm
 
 """
 
 import numpy as np
 import pandas as pd
-from bayesian_wq_calibration.epanet import model_simulation
 from bayesian_wq_calibration.data import load_network_data, sensor_model_id
 from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, INP_FILE, IV_CLOSE, IV_OPEN, IV_OPEN_PART
+from bayesian_wq_calibration.simulation import hydraulic_solver
 import plotly.express as px
 import plotly.graph_objects as go
 import json
 import warnings
 warnings.filterwarnings("ignore")
+
+
 
 
 
@@ -35,7 +39,9 @@ net_info = wdn.net_info
 link_df = wdn.link_df
 node_df = wdn.node_df
 demand_df = wdn.demand_df
-C0 = link_df['C'].values
+C_0 = link_df['C'].values
+
+
 
 
 
@@ -78,14 +84,17 @@ datetime = pd.to_datetime(flow_df['datetime'].unique())
 # fig.show()
 
 
+
+
+
 ###### STEP 3: assign isolation/dynamic boundary valve loss coefficients ######
 iv_links = valve_info['iv_link']
 iv_idx = link_df[link_df['link_ID'].isin(iv_links)].index
-C0[iv_idx] = IV_CLOSE
+C_0[iv_idx] = IV_CLOSE
 
 dbv_links = valve_info['dbv_link']
 dbv_idx = link_df[link_df['link_ID'].isin(dbv_links)].index
-C_dbv = []
+C_dbv = np.zeros((len(dbv_idx), len(datetime)))
 for idx, link in enumerate(dbv_links):
     start_node = link_df[link_df['link_ID'] == link]['node_out'].values[0]
     end_node = link_df[link_df['link_ID'] == link]['node_in'].values[0]
@@ -102,18 +111,18 @@ for idx, link in enumerate(dbv_links):
         dbv_value = (abs(start_pressure - end_pressure) * 2 * 9.81 * np.pi**2 * link_diam**4) / (abs(link_flow)**2 * 4**2)
         dbv_value = np.minimum(dbv_value, IV_CLOSE)
         dbv_value = np.maximum(dbv_value, IV_OPEN)
-        C_dbv.append(dbv_value)
+        C_dbv[idx, :] = dbv_value
     except:
         C_dbv_default = np.where(((datetime.hour < 5) | (datetime.hour > 21)), IV_CLOSE, IV_OPEN_PART)
-        C_dbv.append(C_dbv_default)
+        C_dbv[idx, :] = C_dbv_default
 
 # fig = go.Figure()
-# for i, dbv_values in enumerate(C_dbv):
+# for idx in range(C_dbv.shape[0]):
 #     fig.add_trace(go.Scatter(
 #         x=datetime,
-#         y=dbv_values,
+#         y=C_dbv[idx, :],
 #         mode='lines',
-#         name=dbv_links[i]
+#         name=dbv_links[idx]
 #     ))
 # fig.update_layout(
 #     xaxis_title='',
@@ -124,23 +133,27 @@ for idx, link in enumerate(dbv_links):
 # )
 # fig.show()
 
+
+
+
+
 ###### STEP 4: get boundary heads from BWFL 19 and Woodland Way PRV (inlet) + 5 ish m ######
 reservoir_nodes = net_info['reservoir_names']
 reservoir_idx = node_df[node_df['node_ID'].isin(reservoir_nodes)].index
-h0 = []
+h0 = np.zeros((len(reservoir_idx), len(datetime)))
 for idx, node in enumerate(reservoir_nodes):
     bwfl_id = pressure_device_id[pressure_device_id['model_id'] == node]['bwfl_id'].values[0]
     elev = pressure_device_id[pressure_device_id['model_id'] == node]['elev'].values[0]
     h0_temp = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values + elev
-    h0.append(np.round(h0_temp, 2))
+    h0[idx, :] = np.round(h0_temp, 2)
 
 # fig = go.Figure()
-# for i, head_values in enumerate(h0):
+# for idx in range(h0.shape[0]):
 #     fig.add_trace(go.Scatter(
 #         x=datetime,
-#         y=head_values,
+#         y=h0[idx, :],
 #         mode='lines',
-#         name=reservoir_nodes[i]
+#         name=reservoir_nodes[idx]
 #     ))
 # fig.update_layout(
 #     xaxis_title='',
@@ -150,6 +163,8 @@ for idx, node in enumerate(reservoir_nodes):
 #     height=450,
 # )
 # fig.show()
+
+
 
 
 
@@ -216,7 +231,9 @@ for key in flow_balance.keys():
 
     assert np.isclose(total_scaled_demand.sum(), total_inflow.sum()), f"Mismatch for zone {key}: {total_scaled_demand.sum()} != {total_inflow.sum()}"
 
-d = scaled_demand_df.iloc[:, 3:].values
+d = scaled_demand_df.iloc[:, 3:].values / 1000 # back to cms
+
+
 
 
 
@@ -224,7 +241,7 @@ d = scaled_demand_df.iloc[:, 3:].values
 prv_links = valve_info['prv_link']
 prv_dir = valve_info['prv_dir']
 prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
-eta = []
+eta = np.zeros((len(prv_idx), len(datetime)))
 for idx, link in enumerate(prv_links):
     if prv_dir[idx] == 1:
         start_node = link_df[link_df['link_ID'] == link]['node_out'].values[0]
@@ -259,15 +276,15 @@ for idx, link in enumerate(prv_links):
         end_bwfl_id = pressure_device_id[pressure_device_id['model_id'] == end_node]['bwfl_id'].values[0]
         end_pressure = pressure_df[pressure_df['bwfl_id'] == end_bwfl_id]['mean'].values
 
-    eta.append(start_pressure - end_pressure)
+    eta[idx, :] = start_pressure - end_pressure
 
 # fig = go.Figure()
-# for i, local_losses in enumerate(eta):
+# for idx in range(eta.shape[0]):
 #     fig.add_trace(go.Scatter(
 #         x=datetime,
-#         y=local_losses,
+#         y=eta[idx, :],
 #         mode='lines',
-#         name=prv_links[i]
+#         name=prv_links[idx]
 #     ))
 # fig.update_layout(
 #     xaxis_title='',
@@ -277,3 +294,32 @@ for idx, link in enumerate(prv_links):
 #     height=450,
 # )
 # fig.show()
+
+
+
+
+###### Step 7: split train/test data ######
+# insert code here...
+
+
+
+
+###### Step 8: compute initial hydraulics ######
+q_0, h_0 = hydraulic_solver(wdn, d, h0, C_0, C_dbv, eta)
+
+# check
+for idx, link in enumerate(prv_links):
+    if prv_dir[idx] == 1:
+        start_node = link_df[link_df['link_ID'] == link]['node_out'].values[0]
+        end_node = link_df[link_df['link_ID'] == link]['node_in'].values[0]
+    else:
+        start_node = link_df[link_df['link_ID'] == link]['node_in'].values[0]
+        end_node = link_df[link_df['link_ID'] == link]['node_out'].values[0]
+
+    start_idx = node_df[node_df['node_ID'] == start_node].index
+    end_idx = node_df[node_df['node_ID'] == end_node].index
+
+    simulated_prv_loss = h_0[start_idx, 1] - h_0[end_idx, 1]
+    print(simulated_prv_loss)
+    eta_ = eta[idx, 1]
+    print(eta_)

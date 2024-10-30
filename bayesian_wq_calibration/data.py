@@ -124,7 +124,7 @@ def load_network_data(inp_file):
     A10 = A[:, reservoir_idx]; A10 = sp.csr_matrix(A10) # link-reservoir indicent matrix
 
     # extract demand data
-    demand_df = results.node['demand'].T * 1000
+    demand_df = results.node['demand'].T * 1000 # Lps
     col_names = [f'demands_{t}' for t in range(1, len(demand_df.columns)+1)]
     demand_df.columns = col_names
     demand_df.reset_index(drop=False, inplace=True)
