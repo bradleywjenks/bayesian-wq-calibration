@@ -7,8 +7,8 @@ This script calibrates the Field Lab's hydraulic model using flow and pressure d
     5. scale demands based on flow balance (DMA or WWMD resolution)
     6. get control valve losses (PRV + DBV links)
     7. split test/train data for h0, d, C_dbv, and eta
-    8. compute initial hydraulics
-    9. get pressure and flow data: time series + model ID and check initial model performance
+    8. get pressure and flow data: time series + model ID and check initial model performance
+    9. compute initial hydraulics and plot residuals
     10. get pipe grouping
     11. calibrate HW coefficients via SCP algorithm
 
@@ -298,28 +298,78 @@ for idx, link in enumerate(prv_links):
 
 
 
+
 ###### Step 7: split train/test data ######
-# insert code here...
+n_total = len(datetime)
+n_train = 7 * 24 * 4
+
+train_range = range(n_train)
+test_range = range(n_train, n_total)
 
 
 
 
-###### Step 8: compute initial hydraulics ######
+
+###### Step 8: get sensor data ######
+# pressure devices
+not_these_pressure_ids = ['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'Snowden Road PRV (inlet)', 'Snowden Road PRV (outlet)', 'New Station Way PRV (inlet)', 'New Station Way PRV (outlet)']
+h_field_ids = pressure_device_id[~pressure_device_id['bwfl_id'].isin(not_these_pressure_ids)]['bwfl_id'].unique()
+
+h_field = np.zeros((len(h_field_ids), len(datetime)))
+h_field_node = []
+for idx, bwfl_id in enumerate(h_field_ids):
+    model_id = pressure_device_id[pressure_device_id['bwfl_id'] == bwfl_id]['model_id'].values[0]
+    pressure_data = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values
+    elev = pressure_device_id[pressure_device_id['bwfl_id'] == bwfl_id]['elev'].values[0]
+    h_field[idx, :] = pressure_data + elev
+    h_field_node.append(model_id)
+
+h_field_idx = node_df[node_df['node_ID'].isin(h_field_node)].index
+
+
+# flow devices
+if demand_resolution == 'dma':
+    not_these_flow_ids = ['inlet_2005', 'inlet_2296', 'Stoke Lane PRV', 'Woodland Way PRV', 'Coldharbour Lane PRV', 'Snowden Road DBV', 'New Station Way DBV']
+    q_field_ids = flow_device_id[~flow_device_id['bwfl_id'].isin(not_these_flow_ids)]['bwfl_id'].unique()
+    q_field = np.zeros((len(q_field_ids), len(datetime)))
+    q_field_link = []
+    for idx, bwfl_id in enumerate(q_field_ids):
+        model_id = flow_device_id[flow_device_id['bwfl_id'] == bwfl_id]['model_id'].values[0]
+        flow_data = flow_df[flow_df['bwfl_id'] == bwfl_id]['mean'].values  # lps
+        q_field[idx, :] = flow_data
+        q_field_link.append(model_id)
+
+    q_field_idx = link_df[link_df['link_ID'].isin(q_field_link)].index
+else:
+    q_field_ids = []
+    q_field_link = []
+    q_field_idx = []
+
+
+
+
+###### Step 9: compute initial hydraulics and plot residuals ######
 q_0, h_0 = hydraulic_solver(wdn, d, h0, C_0, C_dbv, eta)
 
-# check
-for idx, link in enumerate(prv_links):
-    if prv_dir[idx] == 1:
-        start_node = link_df[link_df['link_ID'] == link]['node_out'].values[0]
-        end_node = link_df[link_df['link_ID'] == link]['node_in'].values[0]
-    else:
-        start_node = link_df[link_df['link_ID'] == link]['node_in'].values[0]
-        end_node = link_df[link_df['link_ID'] == link]['node_out'].values[0]
+print(h_0)
 
-    start_idx = node_df[node_df['node_ID'] == start_node].index
-    end_idx = node_df[node_df['node_ID'] == end_node].index
+# pressure residuals (train)
+print(h_field_idx.values)
+h_field_train = h_field[:, train_range]
+h_sim_train = h_0[h_field_idx.values, train_range]
+h_residuals = h_sim_train - h_field_train
 
-    simulated_prv_loss = h_0[start_idx, 1] - h_0[end_idx, 1]
-    print(simulated_prv_loss)
-    eta_ = eta[idx, 1]
-    print(eta_)
+residuals_df = pd.DataFrame(h_residuals.T, columns=h_field_ids)
+residuals_df['datetime'] = datetime[train_range]
+
+fig = px.box(residuals_df.melt(id_vars='datetime', var_name='Sensor', value_name='Residual'),
+             x='Sensor', y='Residual', points='all')
+
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Residuals [m]',
+    template='simple_white',
+    height=450,
+)
+fig.show()
+
