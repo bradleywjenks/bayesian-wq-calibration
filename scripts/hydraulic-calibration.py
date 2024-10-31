@@ -21,6 +21,8 @@ from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, INP_F
 from bayesian_wq_calibration.simulation import hydraulic_solver
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.colors
+default_colors = plotly.colors.qualitative.Plotly
 import json
 import warnings
 warnings.filterwarnings("ignore")
@@ -348,28 +350,60 @@ else:
 
 
 
+
 ###### Step 9: compute initial hydraulics and plot residuals ######
 q_0, h_0 = hydraulic_solver(wdn, d, h0, C_0, C_dbv, eta)
 
-print(h_0)
+def loss_fun(h_field, h_sim):
+    h_field_flat = h_field.flatten()
+    h_sim_flat = h_sim.flatten()
+    mask = ~np.isnan(h_field_flat) & ~np.isnan(h_sim_flat)
+    return (1 / mask.sum()) * np.sum((h_sim_flat[mask] - h_field_flat[mask]) ** 2)
 
-# pressure residuals (train)
-print(h_field_idx.values)
+# pressure initial residuals (train)
 h_field_train = h_field[:, train_range]
-h_sim_train = h_0[h_field_idx.values, train_range]
-h_residuals = h_sim_train - h_field_train
+h_sim_train = h_0[h_field_idx, :][:, train_range]
+h_residuals_0 = h_sim_train - h_field_train
 
-residuals_df = pd.DataFrame(h_residuals.T, columns=h_field_ids)
-residuals_df['datetime'] = datetime[train_range]
+residuals_0_df = pd.DataFrame(h_residuals_0, index=h_field_ids)
+residuals_0_df = residuals_0_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
+residuals_0_df = residuals_0_df.rename(columns={'index': 'bwfl_id'})
+residuals_0_df['dma_id'] = residuals_0_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
+# residuals_0_df = residuals_0_df.dropna(subset=['residual'])
 
-fig = px.box(residuals_df.melt(id_vars='datetime', var_name='Sensor', value_name='Residual'),
-             x='Sensor', y='Residual', points='all')
+mse_train_0 = loss_fun(h_field_train, h_sim_train)
+print(f'Initial mse on training data: {round(mse_train_0, 2)}')
 
+
+fig = px.box(
+    residuals_0_df, 
+    x="bwfl_id",
+    y="residual",
+    color="dma_id",
+)
 fig.update_layout(
-    xaxis_title='',
-    yaxis_title='Residuals [m]',
+    title="Pre-calibration residuals",
+    xaxis_title="",
+    yaxis_title="Pressure residual [m]",
     template='simple_white',
     height=450,
+    legend_title="DMA",
+    boxmode="overlay",
+    xaxis=dict(
+        tickangle=45,
+    )
 )
 fig.show()
+
+
+
+
+
+###### Step 10: make pipe grouping index list ######
+# based on initial HW coefficients
+C_0_unique = np.unique(C_0)
+group_mapping = {value: idx for idx, value in enumerate(C_0_unique)}
+pipe_grouping = np.array([group_mapping[val] for val in C_0])
+print("Unique values in C_0:", C_0_unique)
+print("Pipe grouping vector:", pipe_grouping)
 
