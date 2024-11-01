@@ -21,6 +21,7 @@ from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, INP_F
 from bayesian_wq_calibration.simulation import hydraulic_solver
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
 import json
@@ -400,10 +401,62 @@ fig.show()
 
 
 ###### Step 10: make pipe grouping index list ######
-# based on initial HW coefficients
+C_0 = np.array([C_0[idx] for idx, row in link_df.iterrows() if row['link_type'] == 'pipe'])
 C_0_unique = np.unique(C_0)
 group_mapping = {value: idx for idx, value in enumerate(C_0_unique)}
 pipe_grouping = np.array([group_mapping[val] for val in C_0])
-print("Unique values in C_0:", C_0_unique)
-print("Pipe grouping vector:", pipe_grouping)
 
+# plot C_0 values
+data = {
+    'C_0': [C_0[idx] for idx, row in link_df.iterrows()],
+    'type': ['pipe' if row['link_type'] == 'pipe' else 'valve' for idx, row in link_df.iterrows()],
+    'index': list(range(len(C_0)))  # Use the same index for pipes and valves
+}
+df = pd.DataFrame(data)
+pipe_df = df[df['type'] == 'pipe'].reset_index(drop=True)
+valve_df = df[df['type'] == 'valve'].reset_index(drop=True)
+
+fig = make_subplots(rows=2, cols=1, shared_yaxes=True, vertical_spacing=0.15)
+fig.add_trace(
+    go.Scatter(
+        x=pipe_df['index'],
+        y=pipe_df['C_0'],
+        mode='markers',
+        marker=dict(
+            symbol='circle',
+            color='rgba(0,0,0,0)',
+            line=dict(color=default_colors[0], width=0.75)
+        ),
+        name='Pipe'
+    ),
+    row=1, col=1
+)
+fig.add_trace(
+    go.Scatter(
+        x=valve_df['index'],
+        y=valve_df['C_0'],
+        mode='markers',
+        marker=dict(
+            symbol='circle',
+            color='rgba(0,0,0,0)',
+            line=dict(color=default_colors[1], width=0.75)
+        ),
+        name='Valve'
+    ),
+    row=2, col=1
+)
+fig.update_layout(
+    template='simple_white',
+    height=900,
+    legend_title="Link type",
+)
+fig.update_xaxes(title_text="Pipe link", row=1, col=1)
+fig.update_xaxes(title_text="Valve link", row=2, col=1)
+fig.update_yaxes(title_text="Initial HW coefficient", row=1, col=1)
+fig.update_yaxes(title_text="Initial valve coefficient", row=2, col=1)
+fig.show()
+
+
+
+
+###### Step 11: calibrate HW coefficients via SCP algorithm ######
