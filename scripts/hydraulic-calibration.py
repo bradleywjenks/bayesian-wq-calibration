@@ -25,6 +25,12 @@ from plotly.subplots import make_subplots
 import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
 import json
+import copy
+import gurobipy as gp
+from gurobipy import GRB
+import pyomo.environ as pyo
+import scipy.sparse as sp
+from pyomo.opt import SolverFactory
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -362,9 +368,7 @@ def loss_fun(h_field, h_sim):
     return (1 / mask.sum()) * np.sum((h_sim_flat[mask] - h_field_flat[mask]) ** 2)
 
 # pressure initial residuals (train)
-h_field_train = h_field[:, train_range]
-h_sim_train = h_0[h_field_idx, :][:, train_range]
-h_residuals_0 = h_sim_train - h_field_train
+h_residuals_0 = h_0[h_field_idx, :][:, train_range] - h_field[:, train_range]
 
 residuals_0_df = pd.DataFrame(h_residuals_0, index=h_field_ids)
 residuals_0_df = residuals_0_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
@@ -372,7 +376,7 @@ residuals_0_df = residuals_0_df.rename(columns={'index': 'bwfl_id'})
 residuals_0_df['dma_id'] = residuals_0_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
 # residuals_0_df = residuals_0_df.dropna(subset=['residual'])
 
-mse_train_0 = loss_fun(h_field_train, h_sim_train)
+mse_train_0 = loss_fun(h_field[:, train_range], h_0[h_field_idx, :][:, train_range])
 print(f'Initial mse on training data: {round(mse_train_0, 2)}')
 
 
@@ -401,10 +405,10 @@ fig.show()
 
 
 ###### Step 10: make pipe grouping index list ######
-C_0 = np.array([C_0[idx] for idx, row in link_df.iterrows() if row['link_type'] == 'pipe'])
-C_0_unique = np.unique(C_0)
-group_mapping = {value: idx for idx, value in enumerate(C_0_unique)}
-pipe_grouping = np.array([group_mapping[val] for val in C_0])
+C_0_pipe = np.array([C_0[idx] for idx, row in link_df.iterrows() if row['link_type'] == 'pipe'])
+C_0_pipe_unique = np.unique(C_0_pipe)
+group_mapping = {value: idx for idx, value in enumerate(C_0_pipe_unique)}
+pipe_grouping = np.array([group_mapping[val] for val in C_0_pipe])
 
 # plot C_0 values
 data = {
@@ -460,3 +464,161 @@ fig.show()
 
 
 ###### Step 11: calibrate HW coefficients via SCP algorithm ######
+
+# functions
+def linear_approx_calibration(wdn, q, C):
+    # unload data
+    A12 = wdn.A12
+    A10 = wdn.A10
+    net_info = wdn.net_info
+    link_df = wdn.link_df
+
+    K = np.zeros((net_info['np'], 1))
+    n_exp = link_df['n_exp'].astype(float).to_numpy().reshape(-1, 1)
+    b1_k = copy.copy(K)
+    b2_k = copy.copy(K)
+
+    for idx, row in link_df.iterrows():
+        if row['link_type'] == 'pipe':
+            K[idx] = 10.67 * row['length'] * (C[idx] ** -row['n_exp']) * (row['diameter'] ** -4.8704)
+            b1_k[idx] = copy.copy(K[idx])
+            b2_k[idx] = (-n_exp[idx] * K[idx]) / C[idx]
+
+        elif row['link_type'] == 'valve':
+            K[idx] = (8 / (np.pi ** 2 * 9.81)) * (row['diameter'] ** -4) * C[idx]
+            b1_k[idx] = -n_exp[idx] * copy.copy(K[idx]) 
+            b2_k[idx] = copy.copy(K[idx]) / C[idx]
+
+    a11_k = np.tile(K, q.shape[1]) * np.abs(q) ** (n_exp - 1)
+    b1_k = np.tile(b1_k, q.shape[1]) * np.abs(q) ** (n_exp - 1)
+    b2_k = np.tile(b2_k, q.shape[1]) * np.abs(q) ** (n_exp - 1) * q
+
+    return a11_k, b1_k, b2_k
+
+
+#### SCP algorithm ####
+Ki = np.inf
+iter_max = 50
+delta_k = 20
+C_up_pipe = 200
+C_lo_pipe = 1e-4
+A13 = np.zeros((net_info['np'], len(prv_idx)))
+for col, idx in enumerate(prv_idx):
+    A13[idx, col] = 1
+A13 = sp.csr_matrix(A13)
+n_exp = link_df['n_exp']
+theta_k = C_0
+q_k, h_k = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_k, C_dbv[:, train_range], eta[:, train_range])
+a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_k, theta_k)
+
+# pyomo model
+model = pyo.ConcreteModel()
+
+# define sets, variables, and parameters
+model.np = pyo.Set(initialize=range(net_info['np']-1))
+model.nn = pyo.Set(initialize=range(net_info['nn']-1))
+model.n_train = pyo.Set(initialize=train_range)
+model.q = pyo.Var(model.np, model.n_train, domain=pyo.Reals)
+model.h = pyo.Var(model.nn, model.n_train, domain=pyo.Reals)
+model.theta = pyo.Var(model.np, domain=pyo.Reals)
+model.b1_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b1_k)
+model.b2_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b2_k)
+model.a11_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=a11_k)
+model.q_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=q_k)
+model.h_k = pyo.Param(model.nn, model.n_train, mutable=True, initialize=h_k)
+model.theta_k = pyo.Param(model.np, mutable=True, initialize=theta_k)
+model.delta_k = pyo.Param(mutable=True, initialize=delta_k)
+
+# objective function
+def objective_function(m):
+    return (1 / len(h_field[:, train_range].flatten())) * sum(
+        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in train_range
+    )
+model.objective = pyo.Objective(rule=objective_function, sense=pyo.minimize)
+
+# constraints
+def energy_constraint_rule(m, j, t):
+    return (
+        m.b1_k[j, t] * m.q_k[j, t] +
+        n_exp[j] * m.a11_k[j, t] * m.q[j, t] +
+        m.b2_k[j, t] * m.theta[j] +
+        sum(A12[j, i] * m.h[i, t] for i in m.nn) +
+        sum(A10[j, s] * h0[s, t] for s in range(len(reservoir_idx))) +
+        sum(A13[j, p] * eta[p, t] for p in range(len(prv_idx)))
+    ) == 0
+model.energy_constraint = pyo.Constraint(model.np, model.n_train, rule=energy_constraint_rule)
+
+def mass_constraint_rule(m, i, t):
+    return sum(A12[i, j] * m.q[j, t] for j in model.np) == d[i, t]
+model.mass_constraint = pyo.Constraint(model.nn, model.n_train, rule=mass_constraint_rule)
+
+def trust_region_rule(m, j):
+    return abs(m.theta[j] - m.theta_k[j]) <= m.delta_k
+model.trust_region_constraint = pyo.Constraint(model.np, rule=trust_region_rule)
+
+def lower_bound_rule(m, j):
+    return m.theta[j] >= C_lo_pipe
+model.lower_bound_constraint = pyo.Constraint(model.np, rule=lower_bound_rule)
+
+def upper_bound_rule(m, j):
+    return m.theta[j] <= C_up_pipe
+model.upper_bound_constraint = pyo.Constraint(model.np, rule=upper_bound_rule)
+
+def valve_constraint_rule(m, j):
+        if link_df.iloc[j]['link_type'] == 'valve':
+            return m.theta[j] == C_0[j]
+model.valve_constraint = pyo.Constraint(model.np, rule=valve_constraint_rule)
+
+# parameters
+def update_parameters(m, k, q_tilde, h_tilde, theta_tilde, success):
+    if success:
+        a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_tilde, theta_tilde)
+        for t in m.n_train:
+            for j in m.np:
+                m.a11_k[j, t] = a11_k[j, t]
+                m.b1_k[j, t] = b1_k[j, t]
+                m.b2_k[j, t] = b2_k[j, t]
+                m.q_k[j, t] = q_tilde[j, t]
+                m.h_k[j, t] = h_tilde[j, t]
+            for i in m.nn:
+                m.h_k[i, t] = h_tilde[i, t]
+        for j in m.np:
+            m.theta_k[j] = theta_tilde[j]
+        m.delta_k = m.delta_k * 1.1
+        print(f"Iteration {k} successful! Updating estimate and increasing trust region size.")
+    else:
+        m.delta_k = m.delta_k / 4
+        print(f"Iteration {k} unsuccessful! Reducing trust region size.")
+
+
+# # run algorithm
+# solver = SolverFactory("gurobi_persistent")                             
+# for k in range(iter_max):
+#     results = solver.solve(model, tee=False)
+
+#     # check convergence
+#     q_tilde = np.array([[model.q[j, t].value for j in model.np] for t in model.n_train])
+#     h_tilde = np.array([[model.h[i, t].value for i in model.nn] for t in model.n_train])
+#     theta_tilde = np.array([model.theta[j].value for j in model.np])
+
+#     if results.solver.status == pyo.SolverStatus.ok and 
+#     success = results.solver.status == pyo.SolverStatus.ok
+#     update_parameters(model, k, q_tilde, h_tilde, theta_tilde, success)
+
+#     # check convergence
+#     if success:
+#         q_k, h_k = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_tilde, C_dbv[:, train_range], eta[:, train_range])
+#         a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_k, theta_tilde)
+#         mse_train = loss_fun(h_field[:, train_range], h_k[h_field_idx, :][:, train_range])
+#         print(f"Iteration {k} - MSE on training data: {round(mse_train, 2)}")
+#         if mse_train < Ki:
+#             Ki = mse_train
+#             theta_star = theta_tilde
+#             q_star = q_k
+#             h_star = h_k
+#     else:
+#         print(f"Iteration {k} - Solver failed to converge.")
+
+#     if model.delta_k < 1e-5:
+#         print("Trust region too small. Exiting SCP algorithm.")
+#         break

@@ -20,6 +20,9 @@ scipy = "^1.14.1"
 matplotlib = "^3.9.2"
 dtaidistance = "^2.3.12"
 deap = "^1.4.1"
+cvxpy = "^1.5.3"
+gurobipy = "^11.0.3"
+pyomo = "^6.8.0"
 
 
 [build-system]
