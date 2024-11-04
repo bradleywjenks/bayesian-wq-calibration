@@ -26,13 +26,17 @@ import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
 import json
 import copy
-import gurobipy as gp
-from gurobipy import GRB
+# import gurobipy as gp
+# from gurobipy import GRB
 import pyomo.environ as pyo
 import scipy.sparse as sp
 from pyomo.opt import SolverFactory
 import logging
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 
 
@@ -48,48 +52,49 @@ link_df = wdn.link_df
 node_df = wdn.node_df
 demand_df = wdn.demand_df
 C_0 = link_df['C'].values
+valve_idx = link_df[link_df['link_type'] == 'valve'].index
 
 
 
 
 
 ###### STEP 2: load sensor data ######
-data_period = 16 # change data period!!!
+data_period = 12 # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
 flow_device_id = sensor_model_id('flow')
 pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-pressure.csv")
 pressure_device_id = sensor_model_id('pressure')
 datetime = pd.to_datetime(flow_df['datetime'].unique())
 
-# fig = px.line(
-#     flow_df,
-#     x='datetime',
-#     y='mean',
-#     color='bwfl_id',
-# )
-# fig.update_layout(
-#     xaxis_title='',
-#     yaxis_title='Flow [L/s]',
-#     legend_title_text='',
-#     template='simple_white',
-#     height=450,
-# )
-# fig.show()
+fig = px.line(
+    flow_df,
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Flow [L/s]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
 
-# fig = px.line(
-#     pressure_df,
-#     x='datetime',
-#     y='mean',
-#     color='bwfl_id',
-# )
-# fig.update_layout(
-#     xaxis_title='',
-#     yaxis_title='Pressure [m]',
-#     legend_title_text='',
-#     template='simple_white',
-#     height=450,
-# )
-# fig.show()
+fig = px.line(
+    pressure_df,
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Pressure [m]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
 
 
 
@@ -319,7 +324,8 @@ for idx, link in enumerate(prv_links):
 
 ###### Step 7: split train/test data ######
 n_total = len(datetime)
-n_train = 1 * 24 * 4
+n_train = 1
+# n_train = 1 * 24 * 4
 
 train_range = range(n_train)
 test_range = range(n_train, n_total)
@@ -477,8 +483,8 @@ def linear_approx_calibration(wdn, q, C, C_dbv):
     C_0 = wdn.link_df['C'].values
     net_info = wdn.net_info
     link_df = wdn.link_df
-    dbv_idx = link_df[link_df['link_ID'].isin(net_info['dbv_link'])].index
-    iv_idx = link_df[link_df['link_ID'].isin(net_info['iv_link'])].index
+    dbv_idx = link_df[link_df['link_ID'].isin(valve_info['dbv_link'])].index
+    iv_idx = link_df[link_df['link_ID'].isin(valve_info['iv_link'])].index
 
     K = np.zeros((net_info['np'], 1))
     n_exp = link_df['n_exp'].astype(float).to_numpy().reshape(-1, 1)
@@ -496,19 +502,19 @@ def linear_approx_calibration(wdn, q, C, C_dbv):
             b1_k[idx] = -n_exp[idx] * copy.copy(K[idx]) 
             b2_k[idx] = copy.copy(K[idx]) / C[idx]
 
-    a11_k = np.tile(K, q.shape[1]) * np.abs(q) ** (n_exp - 1)
-    b1_k = np.tile(b1_k, q.shape[1]) * np.abs(q) ** (n_exp - 1)
-    b2_k = np.tile(b2_k, q.shape[1]) * np.abs(q) ** (n_exp - 1) * q
+    a11_k = np.tile(K, q.shape[1]) * abs(q) ** (n_exp - 1)
+    b1_k = np.tile(b1_k, q.shape[1]) * abs(q) ** (n_exp - 1)
+    b2_k = np.tile(b2_k, q.shape[1]) * abs(q) ** (n_exp - 1) * q
 
     for idx, dbv in enumerate(dbv_idx):
         for t in range(q.shape[1]):
             a11_k[dbv, t] = (8 / (np.pi ** 2 * 9.81)) * (link_df.loc[dbv]['diameter'] ** -4) * C_dbv[idx, t] * np.abs(q[dbv, t]) ** (n_exp[dbv] - 1)
-            b1_k[dbv, t] = (1 - n_exp[dbv]) * copy.copy(a11_k[dbv, t])
+            b1_k[dbv, t] = (1 - n_exp[dbv]) * a11_k[dbv, t]
             b2_k[dbv, t] = 0
 
     for idx, iv in enumerate(iv_idx):
-        a11_k[iv, :] = (8 / (np.pi ** 2 * 9.81)) * (link_df.loc[dbv]['diameter'] ** -4) * C_0[iv] * np.abs(q[iv, :]) ** (n_exp[iv] - 1)
-        b1_k[iv, :] = (1 - n_exp[iv]) * copy.copy(a11_k[iv, :])
+        a11_k[iv, :] = (8 / (np.pi ** 2 * 9.81)) * (link_df.loc[iv]['diameter'] ** -4) * C_0[iv] * np.abs(q[iv, :]) ** (n_exp[iv] - 1)
+        b1_k[iv, :] = (1 - n_exp[iv]) * a11_k[iv, :]
         b2_k[iv, :] = 0
 
     return a11_k, b1_k, b2_k
@@ -526,6 +532,7 @@ for col, idx in enumerate(prv_idx):
 A13 = sp.csr_matrix(A13)
 n_exp = link_df['n_exp']
 theta_k = C_0
+theta_k_dict = {(j): theta_k[j] for j in range(theta_k.shape[0])}
 q_k, h_k = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_k, C_dbv[:, train_range], eta[:, train_range])
 q_k_dict = {(i, j): q_k[i, j] for i in range(q_k.shape[0]) for j in range(q_k.shape[1])}
 h_k_dict = {(i, j): h_k[i, j] for i in range(h_k.shape[0]) for j in range(h_k.shape[1])}
@@ -543,100 +550,110 @@ objvals.append(objval_k)
 model = pyo.ConcreteModel()
 
 # define sets, variables, and parameters
-model.np = pyo.Set(initialize=range(net_info['np']))
-model.nn = pyo.Set(initialize=range(net_info['nn']))
-model.n_train = pyo.Set(initialize=train_range)
-model.q = pyo.Var(model.np, model.n_train, domain=pyo.Reals)
-model.h = pyo.Var(model.nn, model.n_train, domain=pyo.Reals)
-model.theta = pyo.Var(model.np, domain=pyo.Reals)
-model.b1_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b1_k_dict, domain=pyo.Reals)
-model.b2_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b2_k_dict, domain=pyo.Reals)
-model.a11_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=a11_k_dict, domain=pyo.Reals)    
-model.q_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=q_k_dict, domain=pyo.Reals)
-model.h_k = pyo.Param(model.nn, model.n_train, mutable=True, initialize=h_k_dict, domain=pyo.Reals)
-model.theta_k = pyo.Param(model.np, mutable=True, initialize=theta_k, domain=pyo.Reals)
-model.delta_k = pyo.Param(mutable=True, initialize=delta_k, domain=pyo.Reals)
+model.j_set = pyo.RangeSet(0, net_info['np']-1)
+model.i_set = pyo.RangeSet(0, net_info['nn']-1)
+model.t_set = pyo.RangeSet(0, n_train-1)
+model.v_set = pyo.RangeSet(valve_idx[0], valve_idx[-1])
+model.p_set = pyo.RangeSet(0, len(prv_idx)-1)
+model.s_set = pyo.RangeSet(0, h0.shape[0]-1)
+model.q = pyo.Var(model.j_set, model.t_set)
+model.h = pyo.Var(model.i_set, model.t_set)
+model.theta = pyo.Var(model.j_set)
+model.b1_k = pyo.Param(model.j_set, model.t_set, mutable=True, initialize=b1_k_dict)
+model.b2_k = pyo.Param(model.j_set, model.t_set, mutable=True, initialize=b2_k_dict)
+model.a11_k = pyo.Param(model.j_set, model.t_set, mutable=True, initialize=a11_k_dict)    
+model.q_k = pyo.Param(model.j_set, model.t_set, mutable=True, initialize=q_k_dict)
+model.h_k = pyo.Param(model.i_set, model.t_set, mutable=True, initialize=h_k_dict)
+model.theta_k = pyo.Param(model.j_set, mutable=True, initialize=theta_k_dict)
+model.delta_k = pyo.Param(mutable=True, initialize=delta_k)
+
 
 # objective function
 def objective_function(m):
-    return (1 / len(h_field[:, train_range].flatten())) * sum(
-        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in train_range
+    return (1 / len(h_field[:, m.t_set].flatten())) * sum(
+        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set
     )
 model.objective = pyo.Objective(rule=objective_function, sense=pyo.minimize)
 
+
 # constraints
+nodes_map = {i: np.where(A12.toarray()[i, :] != 0) for i in range(net_info['np'])}
+sources_map = {i: np.where(A10.toarray()[i, :] != 0) for i in range(net_info['np'])}
+links_map = {i: np.where(A12.T.toarray()[i, :] != 0) for i in range(net_info['nn'])}
 def energy_constraint_rule(m, j, t):
-        return (
-            m.b1_k[j, t] * m.q_k[j, t] +
-            n_exp[j] * m.a11_k[j, t] * m.q[j, t] +
-            m.b2_k[j, t] * m.theta[j] +
-            sum(A12[j, i] * m.h[i, t] for i in m.nn) +
-            sum(A10[j, s] * h0[s, t] for s in range(len(reservoir_idx))) +
-            sum(A13[j, p] * eta[p, t] for p in range(len(prv_idx)))
-        ) == 0
-model.energy_constraint = pyo.Constraint(model.np, model.n_train, rule=energy_constraint_rule)
+    return (
+        m.b1_k[j, t] * m.q_k[j, t]
+        + n_exp[j] * m.a11_k[j, t] * m.q[j, t]
+        + m.b2_k[j, t] * m.theta[j]
+        + sum(A12[j, i] * m.h[i, t] for i in nodes_map[j][0])
+        + sum(A10[j, s] * h0[s, t] for s in sources_map[j][0])
+        + sum(A13[j, p] * eta[p, t] for p in m.p_set)
+    ) == 0
+model.energy_constraint = pyo.Constraint(model.j_set, model.t_set, rule=energy_constraint_rule)
 
 def mass_constraint_rule(m, i, t):
-    return sum(A12[i, j] * m.q[j, t] for j in model.np) == d[i, t]
-model.mass_constraint = pyo.Constraint(model.nn, model.n_train, rule=mass_constraint_rule)
+    return sum(A12.T[i, j] * m.q[j, t] for j in links_map[i][0]) == d[i, t]
+model.mass_constraint = pyo.Constraint(model.i_set, model.t_set, rule=mass_constraint_rule)
 
 def trust_region_rule(m, j):
     return abs(m.theta[j] - m.theta_k[j]) <= m.delta_k
-model.trust_region_constraint = pyo.Constraint(model.np, rule=trust_region_rule)
+model.trust_region_constraint = pyo.Constraint(model.j_set, rule=trust_region_rule)
 
 def lower_bound_rule(m, j):
     return m.theta[j] >= C_lo_pipe
-model.lower_bound_constraint = pyo.Constraint(model.np, rule=lower_bound_rule)
+model.lower_bound_constraint = pyo.Constraint(model.j_set, rule=lower_bound_rule)
 
 def upper_bound_rule(m, j):
     return m.theta[j] <= C_up_pipe
-model.upper_bound_constraint = pyo.Constraint(model.np, rule=upper_bound_rule)
+model.upper_bound_constraint = pyo.Constraint(model.j_set, rule=upper_bound_rule)
 
-def valve_constraint_rule(m, j):
-        if link_df.iloc[j]['link_type'] == 'valve':
-            return m.theta[j] == C_0[j]
-model.valve_constraint = pyo.Constraint(model.np, rule=valve_constraint_rule)
+def valve_constraint_rule(m, v):
+    return m.theta[v] == C_0[v]
+model.valve_constraint = pyo.Constraint(model.v_set, rule=valve_constraint_rule)
 
 # parameters
 def update_parameters(m, q_tilde, h_tilde, theta_tilde, success):
     if success:
         a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_tilde, theta_tilde, C_dbv)
-        for t in m.n_train:
-            for j in m.np:
+        for t in m.t_set:
+            for j in m.j_set:
                 m.a11_k[j, t] = a11_k[j, t]
                 m.b1_k[j, t] = b1_k[j, t]
                 m.b2_k[j, t] = b2_k[j, t]
                 m.q_k[j, t] = q_tilde[j, t]
                 m.h_k[j, t] = h_tilde[j, t]
-            for i in m.nn:
+            for i in m.i_set:
                 m.h_k[i, t] = h_tilde[i, t]
-        for j in m.np:
+        for j in m.j_set:
             m.theta_k[j] = theta_tilde[j]
         m.delta_k = m.delta_k * 1.1
     else:
         m.delta_k = m.delta_k / 4
 
+print(model)
 
-# run algorithm
-solver = SolverFactory("gurobi_persistent")                             
+# run algorithm      
+solver = SolverFactory("gurobi_persistent")        
+solver.set_instance(model)           
 for k in range(iter_max):
-    solver.set_instance(model)
-    theta_tilde = np.array([model.theta[j].value for j in model.np])
-    q_tilde, h_tilde = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_tilde, C_dbv[:, train_range], eta[:, train_range])
-    objval_tilde = loss_fun(h_field[:, train_range], h_tilde[h_field_idx, :][:, train_range])
+    results = solver.solve(model, tee=True)
+    print(pyo.value(model.objective))
+    # theta_tilde = np.array([model.theta[j].value for j in model.np])
+    # q_tilde, h_tilde = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_tilde, C_dbv[:, train_range], eta[:, train_range])
+    # objval_tilde = loss_fun(h_field[:, train_range], h_tilde[h_field_idx, :][:, train_range])
 
-    if (objval_k - objval_tilde) / (objval_k - pyo.value(model.objective)) >= 0.1:
-        success = True
-        update_parameters(model, q_tilde, h_tilde, theta_tilde, success)
-        objval_k = objval_tilde
-        objvals.append(objval_k)
-    else:
-        success = False
-        update_parameters(model, q_tilde, h_tilde, theta_tilde, success)
+    # if (objval_k - objval_tilde) / (objval_k - pyo.value(model.objective)) >= 0.1:
+    #     success = True
+    #     update_parameters(model, q_tilde, h_tilde, theta_tilde, success)
+    #     objval_k = objval_tilde
+    #     objvals.append(objval_k)
+    # else:
+    #     success = False
+    #     update_parameters(model, q_tilde, h_tilde, theta_tilde, success)
 
-    if k == 0:
-        print(f"{'Iteration':<10} {'Objval':<15} {'Ki':<10} {'Delta':<10}")
-    print(f"{k:<5} {objval_k:<15.6f} {Ki:<10.6f} {delta_k:<10.6f} \n")
+    # if k == 0:
+    #     print(f"{'Iteration':<10} {'Objval':<15} {'Ki':<10} {'Delta':<10}")
+    # print(f"{k:<5} {objval_k:<15.6f} {Ki:<10.6f} {delta_k:<10.6f} \n")
 
-    if Ki <= 1e-3 or np.abs(objval_k) <= 1e-2 or delta_k <= 1e-1:
-            break
+    # if Ki <= 1e-3 or np.abs(objval_k) <= 1e-2 or delta_k <= 1e-1:
+    #         break

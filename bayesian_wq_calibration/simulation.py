@@ -70,7 +70,7 @@ def hydraulic_solver(wdn, d, h0, C, C_dbv, eta, method='null_space', print_statu
 
 
     # run over all time steps
-    for t in range(net_info['nt']):
+    for t in range(nt):
         
         hk = 130 * np.ones((net_info['nn'], 1))
         qk = 0.03 * np.ones((net_info['np'], 1))
