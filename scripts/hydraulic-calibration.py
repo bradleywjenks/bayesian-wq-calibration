@@ -31,9 +31,8 @@ from gurobipy import GRB
 import pyomo.environ as pyo
 import scipy.sparse as sp
 from pyomo.opt import SolverFactory
-import warnings
-warnings.filterwarnings("ignore")
-
+import logging
+logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 
@@ -55,7 +54,7 @@ C_0 = link_df['C'].values
 
 
 ###### STEP 2: load sensor data ######
-data_period = 20 # change data period!!!
+data_period = 16 # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
 flow_device_id = sensor_model_id('flow')
 pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-pressure.csv")
@@ -125,6 +124,10 @@ for idx, link in enumerate(dbv_links):
         C_dbv_default = np.where(((datetime.hour < 5) | (datetime.hour > 21)), IV_CLOSE, IV_OPEN_PART)
         C_dbv[idx, :] = C_dbv_default
 
+if np.isnan(C_dbv).any():
+    logging.error("NaN values found in C_dbv")
+    raise ValueError("NaN values found in C_dbv")
+
 # fig = go.Figure()
 # for idx in range(C_dbv.shape[0]):
 #     fig.add_trace(go.Scatter(
@@ -155,6 +158,10 @@ for idx, node in enumerate(reservoir_nodes):
     elev = pressure_device_id[pressure_device_id['model_id'] == node]['elev'].values[0]
     h0_temp = pressure_df[pressure_df['bwfl_id'] == bwfl_id]['mean'].values + elev
     h0[idx, :] = np.round(h0_temp, 2)
+
+if np.isnan(h0).any():
+    logging.error("NaN values found in h0")
+    raise ValueError("NaN values found in h0")
 
 # fig = go.Figure()
 # for idx in range(h0.shape[0]):
@@ -242,7 +249,9 @@ for key in flow_balance.keys():
 
 d = scaled_demand_df.iloc[:, 3:].values / 1000 # back to cms
 
-
+if np.isnan(d).any():
+    logging.error("NaN values found in d")
+    raise ValueError("NaN values found in d")
 
 
 
@@ -310,7 +319,7 @@ for idx, link in enumerate(prv_links):
 
 ###### Step 7: split train/test data ######
 n_total = len(datetime)
-n_train = 7 * 24 * 4
+n_train = 1 * 24 * 4
 
 train_range = range(n_train)
 test_range = range(n_train, n_total)
@@ -375,9 +384,6 @@ residuals_0_df = residuals_0_df.reset_index().melt(id_vars='index', var_name='ti
 residuals_0_df = residuals_0_df.rename(columns={'index': 'bwfl_id'})
 residuals_0_df['dma_id'] = residuals_0_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
 # residuals_0_df = residuals_0_df.dropna(subset=['residual'])
-
-mse_train_0 = loss_fun(h_field[:, train_range], h_0[h_field_idx, :][:, train_range])
-print(f'Initial mse on training data: {round(mse_train_0, 2)}')
 
 
 fig = px.box(
@@ -466,12 +472,13 @@ fig.show()
 ###### Step 11: calibrate HW coefficients via SCP algorithm ######
 
 # functions
-def linear_approx_calibration(wdn, q, C):
-    # unload data
-    A12 = wdn.A12
-    A10 = wdn.A10
+def linear_approx_calibration(wdn, q, C, C_dbv):
+
+    C_0 = wdn.link_df['C'].values
     net_info = wdn.net_info
     link_df = wdn.link_df
+    dbv_idx = link_df[link_df['link_ID'].isin(net_info['dbv_link'])].index
+    iv_idx = link_df[link_df['link_ID'].isin(net_info['iv_link'])].index
 
     K = np.zeros((net_info['np'], 1))
     n_exp = link_df['n_exp'].astype(float).to_numpy().reshape(-1, 1)
@@ -493,6 +500,17 @@ def linear_approx_calibration(wdn, q, C):
     b1_k = np.tile(b1_k, q.shape[1]) * np.abs(q) ** (n_exp - 1)
     b2_k = np.tile(b2_k, q.shape[1]) * np.abs(q) ** (n_exp - 1) * q
 
+    for idx, dbv in enumerate(dbv_idx):
+        for t in range(q.shape[1]):
+            a11_k[dbv, t] = (8 / (np.pi ** 2 * 9.81)) * (link_df.loc[dbv]['diameter'] ** -4) * C_dbv[idx, t] * np.abs(q[dbv, t]) ** (n_exp[dbv] - 1)
+            b1_k[dbv, t] = (1 - n_exp[dbv]) * copy.copy(a11_k[dbv, t])
+            b2_k[dbv, t] = 0
+
+    for idx, iv in enumerate(iv_idx):
+        a11_k[iv, :] = (8 / (np.pi ** 2 * 9.81)) * (link_df.loc[dbv]['diameter'] ** -4) * C_0[iv] * np.abs(q[iv, :]) ** (n_exp[iv] - 1)
+        b1_k[iv, :] = (1 - n_exp[iv]) * copy.copy(a11_k[iv, :])
+        b2_k[iv, :] = 0
+
     return a11_k, b1_k, b2_k
 
 
@@ -509,7 +527,17 @@ A13 = sp.csr_matrix(A13)
 n_exp = link_df['n_exp']
 theta_k = C_0
 q_k, h_k = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_k, C_dbv[:, train_range], eta[:, train_range])
-a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_k, theta_k)
+q_k_dict = {(i, j): q_k[i, j] for i in range(q_k.shape[0]) for j in range(q_k.shape[1])}
+h_k_dict = {(i, j): h_k[i, j] for i in range(h_k.shape[0]) for j in range(h_k.shape[1])}
+
+a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_k, theta_k, C_dbv)
+a11_k_dict = {(i, j): a11_k[i, j] for i in range(a11_k.shape[0]) for j in range(a11_k.shape[1])}
+b1_k_dict = {(i, j): b1_k[i, j] for i in range(b1_k.shape[0]) for j in range(b1_k.shape[1])}
+b2_k_dict = {(i, j): b2_k[i, j] for i in range(b2_k.shape[0]) for j in range(b2_k.shape[1])}
+
+objvals = []
+objval_k = (loss_fun(h_field[:, train_range], h_k[h_field_idx, :][:, train_range]))
+objvals.append(objval_k)
 
 # pyomo model
 model = pyo.ConcreteModel()
@@ -521,13 +549,13 @@ model.n_train = pyo.Set(initialize=train_range)
 model.q = pyo.Var(model.np, model.n_train, domain=pyo.Reals)
 model.h = pyo.Var(model.nn, model.n_train, domain=pyo.Reals)
 model.theta = pyo.Var(model.np, domain=pyo.Reals)
-model.b1_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b1_k)
-model.b2_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b2_k)
-model.a11_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=a11_k)    
-model.q_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=q_k)
-model.h_k = pyo.Param(model.nn, model.n_train, mutable=True, initialize=h_k)
-model.theta_k = pyo.Param(model.np, mutable=True, initialize=theta_k)
-model.delta_k = pyo.Param(mutable=True, initialize=delta_k)
+model.b1_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b1_k_dict, domain=pyo.Reals)
+model.b2_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=b2_k_dict, domain=pyo.Reals)
+model.a11_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=a11_k_dict, domain=pyo.Reals)    
+model.q_k = pyo.Param(model.np, model.n_train, mutable=True, initialize=q_k_dict, domain=pyo.Reals)
+model.h_k = pyo.Param(model.nn, model.n_train, mutable=True, initialize=h_k_dict, domain=pyo.Reals)
+model.theta_k = pyo.Param(model.np, mutable=True, initialize=theta_k, domain=pyo.Reals)
+model.delta_k = pyo.Param(mutable=True, initialize=delta_k, domain=pyo.Reals)
 
 # objective function
 def objective_function(m):
@@ -538,14 +566,14 @@ model.objective = pyo.Objective(rule=objective_function, sense=pyo.minimize)
 
 # constraints
 def energy_constraint_rule(m, j, t):
-    return (
-        m.b1_k[j, t] * m.q_k[j, t] +
-        n_exp[j] * m.a11_k[j, t] * m.q[j, t] +
-        m.b2_k[j, t] * m.theta[j] +
-        sum(A12[j, i] * m.h[i, t] for i in m.nn) +
-        sum(A10[j, s] * h0[s, t] for s in range(len(reservoir_idx))) +
-        sum(A13[j, p] * eta[p, t] for p in range(len(prv_idx)))
-    ) == 0
+        return (
+            m.b1_k[j, t] * m.q_k[j, t] +
+            n_exp[j] * m.a11_k[j, t] * m.q[j, t] +
+            m.b2_k[j, t] * m.theta[j] +
+            sum(A12[j, i] * m.h[i, t] for i in m.nn) +
+            sum(A10[j, s] * h0[s, t] for s in range(len(reservoir_idx))) +
+            sum(A13[j, p] * eta[p, t] for p in range(len(prv_idx)))
+        ) == 0
 model.energy_constraint = pyo.Constraint(model.np, model.n_train, rule=energy_constraint_rule)
 
 def mass_constraint_rule(m, i, t):
@@ -570,9 +598,9 @@ def valve_constraint_rule(m, j):
 model.valve_constraint = pyo.Constraint(model.np, rule=valve_constraint_rule)
 
 # parameters
-def update_parameters(m, k, q_tilde, h_tilde, theta_tilde, success):
+def update_parameters(m, q_tilde, h_tilde, theta_tilde, success):
     if success:
-        a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_tilde, theta_tilde)
+        a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_tilde, theta_tilde, C_dbv)
         for t in m.n_train:
             for j in m.np:
                 m.a11_k[j, t] = a11_k[j, t]
@@ -585,40 +613,30 @@ def update_parameters(m, k, q_tilde, h_tilde, theta_tilde, success):
         for j in m.np:
             m.theta_k[j] = theta_tilde[j]
         m.delta_k = m.delta_k * 1.1
-        print(f"Iteration {k} successful! Updating estimate and increasing trust region size.")
     else:
         m.delta_k = m.delta_k / 4
-        print(f"Iteration {k} unsuccessful! Reducing trust region size.")
 
 
-# # run algorithm
-# solver = SolverFactory("gurobi_persistent")                             
-# for k in range(iter_max):
-#     results = solver.solve(model, tee=False)
+# run algorithm
+solver = SolverFactory("gurobi_persistent")                             
+for k in range(iter_max):
+    solver.set_instance(model)
+    theta_tilde = np.array([model.theta[j].value for j in model.np])
+    q_tilde, h_tilde = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_tilde, C_dbv[:, train_range], eta[:, train_range])
+    objval_tilde = loss_fun(h_field[:, train_range], h_tilde[h_field_idx, :][:, train_range])
 
-#     # check convergence
-#     q_tilde = np.array([[model.q[j, t].value for j in model.np] for t in model.n_train])
-#     h_tilde = np.array([[model.h[i, t].value for i in model.nn] for t in model.n_train])
-#     theta_tilde = np.array([model.theta[j].value for j in model.np])
+    if (objval_k - objval_tilde) / (objval_k - pyo.value(model.objective)) >= 0.1:
+        success = True
+        update_parameters(model, q_tilde, h_tilde, theta_tilde, success)
+        objval_k = objval_tilde
+        objvals.append(objval_k)
+    else:
+        success = False
+        update_parameters(model, q_tilde, h_tilde, theta_tilde, success)
 
-#     if results.solver.status == pyo.SolverStatus.ok and 
-#     success = results.solver.status == pyo.SolverStatus.ok
-#     update_parameters(model, k, q_tilde, h_tilde, theta_tilde, success)
+    if k == 0:
+        print(f"{'Iteration':<10} {'Objval':<15} {'Ki':<10} {'Delta':<10}")
+    print(f"{k:<5} {objval_k:<15.6f} {Ki:<10.6f} {delta_k:<10.6f} \n")
 
-#     # check convergence
-#     if success:
-#         q_k, h_k = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_tilde, C_dbv[:, train_range], eta[:, train_range])
-#         a11_k, b1_k, b2_k = linear_approx_calibration(wdn, q_k, theta_tilde)
-#         mse_train = loss_fun(h_field[:, train_range], h_k[h_field_idx, :][:, train_range])
-#         print(f"Iteration {k} - MSE on training data: {round(mse_train, 2)}")
-#         if mse_train < Ki:
-#             Ki = mse_train
-#             theta_star = theta_tilde
-#             q_star = q_k
-#             h_star = h_k
-#     else:
-#         print(f"Iteration {k} - Solver failed to converge.")
-
-#     if model.delta_k < 1e-5:
-#         print("Trust region too small. Exiting SCP algorithm.")
-#         break
+    if Ki <= 1e-3 or np.abs(objval_k) <= 1e-2 or delta_k <= 1e-1:
+            break
