@@ -31,7 +31,7 @@ def load_network_data(inp_file):
     results = sim.run_sim()
 
     # get network elements and simulation info
-    nt = int(wn.options.time.duration / wn.options.time.report_timestep)
+    nt = int(wn.options.time.duration / wn.options.time.report_timestep) + 1
     nt = nt if nt>0 else 1
     net_info = dict(
         np=wn.num_links,

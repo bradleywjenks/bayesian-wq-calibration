@@ -13,7 +13,7 @@ from bayesian_wq_calibration.constants import NETWORK_DIR
 import json
 
 
-def hydraulic_solver(wdn, d, h0, C, C_dbv, eta, method='null_space', print_status=False):
+def hydraulic_solver(wdn, d, h0, C, eta, C_dbv=None, method='null_space', print_status=False):
 
     with open(NETWORK_DIR / 'valve_info.json') as f:
         valve_info = json.load(f)
@@ -48,10 +48,11 @@ def hydraulic_solver(wdn, d, h0, C, C_dbv, eta, method='null_space', print_statu
             K[idx, :] = local_loss(row, C[idx])
 
     # assign time-varying loss coefficients at DBV links
-    for idx in range(C_dbv.shape[0]):
-        for t in range(C_dbv.shape[1]):
-            link_idx = dbv_idx[idx]
-            K[link_idx, t] = local_loss(row, C_dbv[idx, t])
+    if C_dbv is not None:
+        for idx in range(C_dbv.shape[0]):
+            for t in range(C_dbv.shape[1]):
+                link_idx = dbv_idx[idx]
+                K[link_idx, t] = local_loss(row, C_dbv[idx, t])
 
     tol = 1e-5
     kmax = 50
@@ -177,10 +178,12 @@ def friction_loss(net_info, df, C):
     else:
         print('Error. Only the Hazen-Williams head loss model is supported.')
         K = [] # insert DW formula here...
+    # K = ((1e-3) ** df['n_exp']) * K # convert to lps
     return K
 
 def local_loss(df, C):
     K = (8 / (np.pi ** 2 * 9.81)) * (df['diameter'] ** -4) * C
+    # K = ((1e-3) ** df['n_exp']) * K # convert to lps
     return K
 
 
