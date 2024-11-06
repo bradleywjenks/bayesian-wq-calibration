@@ -304,6 +304,10 @@ n_train = 1 * 24 * 4
 train_range = range(n_train)
 test_range = range(n_train, n_total)
 
+print(train_range[0])
+print(train_range[-1])
+print(test_range[0])
+print(test_range[-1])
 
 
 
@@ -453,6 +457,7 @@ fig.show()
 
 
 
+
 ###### Step 11: calibrate HW coefficients via SCP algorithm ######
 
 # functions
@@ -496,19 +501,21 @@ diameter = link_df['diameter'].astype(float).to_numpy().reshape(-1, 1)
 
 
 #### SCP algorithm ####
-solution_method = 'gurobi' # 'gurobi', 'ipopt'
+solution_method = 'ipopt' # 'gurobi', 'ipopt'
 
 Ki = np.inf
 q_tol = 1e-8
 iter_max = 50
 delta_k = 20
 C_up_pipe = 200
-C_lo_pipe = 1e-4
+C_lo_pipe = 20
 A13 = np.zeros((net_info['np'], len(prv_idx)))
 for col, idx in enumerate(prv_idx):
     A13[idx, col] = 1
 theta_k = C_0
 theta_k_dict = {(j): theta_k[j] for j in range(theta_k.shape[0])}
+Theta_k = C_0_pipe_unique
+Theta_k_dict = {(g): Theta_k[g] for g in range(Theta_k.shape[0])}
 q_k, h_k = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_k, eta[:, train_range])
 q_k_dict = {(i, j): q_k[i, j] for i in range(q_k.shape[0]) for j in range(q_k.shape[1])}
 h_k_dict = {(i, j): h_k[i, j] for i in range(h_k.shape[0]) for j in range(h_k.shape[1])}
@@ -534,10 +541,10 @@ model.v_set = RangeSet(valve_idx[0], valve_idx[-1])
 model.r_set = RangeSet(0, len(prv_idx)-1)
 model.s_set = RangeSet(0, h0.shape[0]-1)
 model.g_set = RangeSet(0, num_pipe_groups-1)
-model.q = Var(model.j_set, model.t_set)
-model.h = Var(model.i_set, model.t_set)
-model.theta = Var(model.j_set)
-model.Theta = Var(model.g_set)
+model.q = Var(model.j_set, model.t_set, initialize=q_k_dict)
+model.h = Var(model.i_set, model.t_set, initialize=h_k_dict)
+model.theta = Var(model.j_set, initialize=theta_k_dict)
+model.Theta = Var(model.g_set, initialize=Theta_k_dict)
 if solution_method == 'gurobi':
     model.b1_k = Param(model.j_set, model.t_set, mutable=True, initialize=b1_k_dict)
     model.b2_k = Param(model.j_set, model.t_set, mutable=True, initialize=b2_k_dict)
@@ -566,15 +573,15 @@ def energy_constraint_rule(m, j, t):
                 10.67 * length[j] * (m.theta[j] ** -n_exp[j]) * (diameter[j] ** -4.8704) * (m.q[j, t]) * abs(m.q[j, t] + q_tol)**(n_exp[j] - 1)
                 + sum(A12[j, i] * m.h[i, t] for i in nodes_map[j][0])
                 + sum(A10[j, s] * h0[s, t] for s in sources_map[j][0])
-                + sum(A13[j, r] * eta[r, t] for r in m.r_set) == 0
-            )
+                + sum(A13[j, r] * eta[r, t] for r in m.r_set)
+            ) == 0
         elif j in valve_idx:
             return (
                 (8 / (np.pi ** 2 * 9.81)) * (diameter[j] ** -4) * m.theta[j] * (m.q[j, t]) * abs(m.q[j, t] + q_tol)**(n_exp[j] - 1)
                 + sum(A12[j, i] * m.h[i, t] for i in nodes_map[j][0])
                 + sum(A10[j, s] * h0[s, t] for s in sources_map[j][0])
-                + sum(A13[j, r] * eta[r, t] for r in m.r_set) == 0
-            )
+                + sum(A13[j, r] * eta[r, t] for r in m.r_set)
+            ) == 0
     elif solution_method == 'gurobi':
         return (
             m.b1_k[j, t] * m.q_k[j, t]
@@ -638,10 +645,10 @@ if solution_method == 'gurobi':
 # run algorithm   
 if solution_method == 'ipopt':
     solver = SolverFactory('ipopt')
-    solver.options['tol'] = 1e-4
-    solver.options['acceptable_tol'] = 1e-4
-    solver.options['constr_viol_tol'] = 1e-4
-    solver.options['compl_inf_tol'] = 1e-4
+    solver.options['tol'] = 1e-3
+    # solver.options['acceptable_tol'] = 1e-4
+    # solver.options['constr_viol_tol'] = 1e-4
+    # solver.options['compl_inf_tol'] = 1e-4
 
     result = solver.solve(model, tee=True)
     theta_opt = np.array([model.theta[j].value for j in model.j_set])
@@ -685,33 +692,33 @@ elif solution_method == 'gurobi':
 
 ###### Step 12: plot calibration results ######
 
-# pressure residuals (test)
-q_opt, h_opt = hydraulic_solver(wdn, d[:, test_range], h0[:, test_range], theta_opt, eta[:, test_range])
-h_residuals_opt = h_opt[h_field_idx, :][:, test_range] - h_field[:, test_range]
-residuals_opt_df = pd.DataFrame(h_residuals_opt, index=h_field_ids)
-residuals_opt_df = residuals_opt_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
-residuals_opt_df = residuals_opt_df.rename(columns={'index': 'bwfl_id'})
-residuals_opt_df['dma_id'] = residuals_opt_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
+# # pressure residuals (test)
+# q_opt, h_opt = hydraulic_solver(wdn, d[:, test_range], h0[:, test_range], theta_opt, eta[:, test_range])
+# h_residuals_opt = h_opt[h_field_idx, :][:, test_range] - h_field[:, test_range]
+# residuals_opt_df = pd.DataFrame(h_residuals_opt, index=h_field_ids)
+# residuals_opt_df = residuals_opt_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
+# residuals_opt_df = residuals_opt_df.rename(columns={'index': 'bwfl_id'})
+# residuals_opt_df['dma_id'] = residuals_opt_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
 
-fig = px.box(
-    residuals_opt_df, 
-    x="bwfl_id",
-    y="residual",
-    color="dma_id",
-)
-fig.update_layout(
-    title="Post-calibration residuals (test dataset)",
-    xaxis_title="",
-    yaxis_title="Pressure residual [m]",
-    template='simple_white',
-    height=450,
-    legend_title="DMA",
-    boxmode="overlay",
-    xaxis=dict(
-        tickangle=45,
-    )
-)
-fig.show()
+# fig = px.box(
+#     residuals_opt_df, 
+#     x="bwfl_id",
+#     y="residual",
+#     color="dma_id",
+# )
+# fig.update_layout(
+#     title="Post-calibration residuals (test dataset)",
+#     xaxis_title="",
+#     yaxis_title="Pressure residual [m]",
+#     template='simple_white',
+#     height=450,
+#     legend_title="DMA",
+#     boxmode="overlay",
+#     xaxis=dict(
+#         tickangle=45,
+#     )
+# )
+# fig.show()
 
 
 # optimized HW and local loss coefficients
