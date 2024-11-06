@@ -301,14 +301,15 @@ model.mass_constraints = Constraint(model.i_set, model.t_set, rule=mass_constrai
 # prv direction constraint
 def prv_direction_rule(model, n, t):
     return (model.eta[n, t] * model.q[prv_idx[n], t] >= 0)
+model.prv_constraints = Constraint(model.n_set, model.t_set, rule=prv_direction_rule)
 
 # objective function
 def objective_rule(model):
     return (
         (1 / nt) * sum(sum(azp_weights[i] * (model.h[i, t] - elevation[i]) for i in model.i_set) for t in model.t_set)
     )
-
 model.objective = Objective(rule=objective_rule, sense=minimize)
+
 solver = SolverFactory('ipopt')
 solver.options['tol'] = 1e-3
 solver.options['max_iter'] = 1000
