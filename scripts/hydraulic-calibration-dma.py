@@ -12,12 +12,13 @@ This script calibrates the Field Lab's hydraulic model using flow and pressure d
     10. get pipe grouping
     11. calibrate HW coefficients via SCP algorithm or IPOPT
 
+    Note!!! This script is messy. It will be cleaned up in the future...
 """
 
 import numpy as np
 import pandas as pd
 from bayesian_wq_calibration.data import load_network_data, sensor_model_id
-from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, INP_FILE, IV_CLOSE, IV_OPEN, IV_OPEN_PART, SPLIT_INP_FILE
+from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, INP_FILE, IV_CLOSE, IV_OPEN, IV_OPEN_PART, SPLIT_INP_FILE, RESULTS_DIR
 from bayesian_wq_calibration.simulation import hydraulic_solver, friction_loss, local_loss
 import plotly.express as px
 import plotly.graph_objects as go
@@ -101,15 +102,17 @@ fig.show()
 
 
 ###### STEP 3: assign isolation/dynamic boundary valve loss coefficients ######
-iv_links = valve_info['iv_link']
-iv_idx = link_df[link_df['link_ID'].isin(iv_links)].index
-C_0[iv_idx] = IV_CLOSE
+# iv_links = valve_info['iv_link']
+# iv_idx = link_df[link_df['link_ID'].isin(iv_links)].index
+# C_0[iv_idx] = IV_CLOSE
+
+#### NOT NEEDED WHEN USING SPLIT INP FILE ####
 
 
 
 
 
-###### STEP 4: get boundary heads from BWFL 19 and Woodland Way PRV (inlet) + 5 ish m ######
+###### STEP 4: get boundary heads from BWFL 19 and Woodland Way PRV (inlet) ######
 reservoir_nodes = net_info['reservoir_names']
 reservoir_idx = node_df[node_df['node_ID'].isin(reservoir_nodes)].index
 h0 = np.zeros((len(reservoir_idx), len(datetime)))
@@ -304,11 +307,6 @@ n_train = 1 * 24 * 4
 train_range = range(n_train)
 test_range = range(n_train, n_total)
 
-print(train_range[0])
-print(train_range[-1])
-print(test_range[0])
-print(test_range[-1])
-
 
 
 
@@ -463,11 +461,8 @@ fig.show()
 # functions
 def linear_approx_calibration(wdn, q, C):
 
-    C_0 = wdn.link_df['C'].values
     net_info = wdn.net_info
     link_df = wdn.link_df
-    dbv_idx = link_df[link_df['link_ID'].isin(valve_info['dbv_link'])].index
-    iv_idx = link_df[link_df['link_ID'].isin(valve_info['iv_link'])].index
 
     K = np.zeros((net_info['np'], 1))
     n_exp = link_df['n_exp'].astype(float).to_numpy().reshape(-1, 1)
@@ -489,9 +484,9 @@ def linear_approx_calibration(wdn, q, C):
             b1_k[idx] = -n_exp[idx] * K_cms
             b2_k[idx] = K_cms/ C[idx]
 
-    a11_k = np.tile(K, q.shape[1]) * abs(q) ** (n_exp - 1)
-    b1_k = np.tile(b1_k, q.shape[1]) * abs(q) ** (n_exp - 1)
-    b2_k = np.tile(b2_k, q.shape[1]) * abs(q) ** (n_exp - 1) * q
+    a11_k = np.tile(K, q.shape[1]) * np.abs(q) ** (n_exp - 1)
+    b1_k = np.tile(b1_k, q.shape[1]) * np.abs(q) ** (n_exp - 1)
+    b2_k = np.tile(b2_k, q.shape[1]) * np.abs(q) ** (n_exp - 1) * q
 
     return a11_k, b1_k, b2_k
 
@@ -692,13 +687,15 @@ elif solution_method == 'gurobi':
 
 ###### Step 12: plot calibration results ######
 
-# # pressure residuals (test)
-# q_opt, h_opt = hydraulic_solver(wdn, d[:, test_range], h0[:, test_range], theta_opt, eta[:, test_range])
+# pressure residuals (test)
+q_opt, h_opt = hydraulic_solver(wdn, d[:, test_range], h0[:, test_range], theta_opt, eta[:, test_range])
 # h_residuals_opt = h_opt[h_field_idx, :][:, test_range] - h_field[:, test_range]
 # residuals_opt_df = pd.DataFrame(h_residuals_opt, index=h_field_ids)
 # residuals_opt_df = residuals_opt_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
 # residuals_opt_df = residuals_opt_df.rename(columns={'index': 'bwfl_id'})
 # residuals_opt_df['dma_id'] = residuals_opt_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
+
+print(h_opt.shape)
 
 # fig = px.box(
 #     residuals_opt_df, 
@@ -728,6 +725,7 @@ data = {
     'index': list(range(len(theta_opt))) 
 }
 df = pd.DataFrame(data)
+df.to_csv(RESULTS_DIR / 'calibrated_coefficients.csv', index=True)
 pipe_df = df[df['type'] == 'pipe'].reset_index(drop=True)
 valve_df = df[df['type'] == 'valve'].reset_index(drop=True)
 

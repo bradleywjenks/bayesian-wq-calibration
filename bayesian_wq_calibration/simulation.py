@@ -32,7 +32,6 @@ def hydraulic_solver(wdn, d, h0, C, eta, C_dbv=None, method='null_space', print_
     prv_dir = valve_info['prv_dir']
     prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
     A13 = np.zeros((net_info['np'], len(prv_idx)))
-
     for col, idx in enumerate(prv_idx):
         A13[idx, col] = 1
     A13 = sp.csr_matrix(A13)

@@ -119,7 +119,7 @@ for idx, link in enumerate(dbv_links):
     try:
         link_bwfl_id = flow_device_id[flow_device_id['model_id'] == link]['bwfl_id'].values[0]
         link_flow = flow_df[flow_df['bwfl_id'] == link_bwfl_id]['mean'].values / 1000 # convert to cms
-        dbv_value = (abs(start_pressure - end_pressure) * 2 * 9.81 * np.pi**2 * link_diam**4) / (abs(link_flow)**2 * 4**2)
+        dbv_value = (np.abs(start_pressure - end_pressure) * 2 * 9.81 * np.pi**2 * link_diam**4) / (np.abs(link_flow)**2 * 4**2)
         dbv_value = np.minimum(dbv_value, IV_CLOSE)
         dbv_value = np.maximum(dbv_value, IV_OPEN)
         C_dbv[idx, :] = dbv_value
@@ -155,7 +155,7 @@ fig.show()
 
 
 
-###### STEP 4: get boundary heads from BWFL 19 and Woodland Way PRV (inlet) + 5 ish m ######
+###### STEP 4: get boundary heads from BWFL 19 and Woodland Way PRV (inlet) ######
 reservoir_nodes = net_info['reservoir_names']
 reservoir_idx = node_df[node_df['node_ID'].isin(reservoir_nodes)].index
 h0 = np.zeros((len(reservoir_idx), len(datetime)))
@@ -511,9 +511,9 @@ def linear_approx_calibration(wdn, q, C):
             b1_k[idx] = -n_exp[idx] * K_cms
             b2_k[idx] = K_cms/ C[idx]
 
-    a11_k = np.tile(K, q.shape[1]) * abs(q) ** (n_exp - 1)
-    b1_k = np.tile(b1_k, q.shape[1]) * abs(q) ** (n_exp - 1)
-    b2_k = np.tile(b2_k, q.shape[1]) * abs(q) ** (n_exp - 1) * q
+    a11_k = np.tile(K, q.shape[1]) * np.abs(q) ** (n_exp - 1)
+    b1_k = np.tile(b1_k, q.shape[1]) * np.abs(q) ** (n_exp - 1)
+    b2_k = np.tile(b2_k, q.shape[1]) * np.abs(q) ** (n_exp - 1) * q
 
     return a11_k, b1_k, b2_k
 
