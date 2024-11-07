@@ -17,6 +17,7 @@ import pandas as pd
 from bayesian_wq_calibration.data import load_network_data, sensor_model_id
 from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, INP_FILE, IV_CLOSE, IV_OPEN, IV_OPEN_PART, SPLIT_INP_FILE, RESULTS_DIR
 from bayesian_wq_calibration.simulation import hydraulic_solver, friction_loss, local_loss
+from bayesian_wq_calibration.plotting import plot_network
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -56,6 +57,7 @@ prv_links = valve_info['prv_link']
 prv_dir = valve_info['prv_dir']
 prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
 prv_settings = valve_info['prv_settings']
+prv_ids = ['Lodge Causeway PRV', 'Stoke Lane PRV', 'Woodland Way PRV', 'Cold Harbour Lane PRV']
 
 
 
@@ -68,7 +70,35 @@ pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2
 pressure_device_id = sensor_model_id('pressure')
 datetime = pd.to_datetime(flow_df['datetime'].unique())
 
+fig = px.line(
+    flow_df,
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Flow [L/s]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
 
+fig = px.line(
+    pressure_df,
+    x='datetime',
+    y='mean',
+    color='bwfl_id',
+)
+fig.update_layout(
+    xaxis_title='',
+    yaxis_title='Pressure [m]',
+    legend_title_text='',
+    template='simple_white',
+    height=450,
+)
+fig.show()
 
 
 
@@ -155,24 +185,6 @@ for key in flow_balance.keys():
 
 d = scaled_demand_df.iloc[:, 3:].values
 
-# set demands at Snowden Road DBV
-node_start = 'node_1809' 
-node_start_idx = node_df[node_df['node_ID'] == node_start].index[0]
-node_end = 'node_1808'
-node_end_idx = node_df[node_df['node_ID'] == node_end].index[0]
-dbv_flow = flow_df[flow_df['bwfl_id'] == 'Snowden Road DBV']['mean'].values
-d[node_end_idx, :] = dbv_flow * -1
-d[node_start_idx, :] = dbv_flow
-
-# set demands at New Station Way DBV
-node_start = 'node_1811' 
-node_start_idx = node_df[node_df['node_ID'] == node_start].index[0]
-node_end = 'node_1810'
-node_end_idx = node_df[node_df['node_ID'] == node_end].index[0]
-dbv_flow = flow_df[flow_df['bwfl_id'] == 'New Station Way DBV']['mean'].values
-d[node_end_idx, :] = dbv_flow * -1
-d[node_start_idx, :] = dbv_flow
-
 d = d / 1000
 
 if np.isnan(d).any():
@@ -214,15 +226,21 @@ links_map = {i: np.where(A12.T.toarray()[i, :] != 0) for i in range(0, net_info[
 d_opt = d[:, nt_range]
 h0_opt = h0[:, nt_range]
 eta_0 = np.zeros([len(prv_idx), nt])
+# eta_0 = np.tile([5, 5, 5, 5], (nt, 1)).T
 # eta_0 = np.tile(prv_settings, (nt, 1)).T
 q_0, h_0 = hydraulic_solver(wdn, d_opt, h0_opt, C, eta_0) # no control hydraulics
+
+# h_plot = h_0 - np.tile(elevation, (1, nt))
+# h_plot_df = pd.DataFrame(h_plot[:])
+# fig = px.box(h_plot_df)
+# fig.show()
 
 # AZP weights (w)
 w = np.abs(A12.T) * np.array(L) / 2
 azp_weights = w / np.sum(w)
 
 # h and q variable bounds
-p_min = 15 # minimum pressure head
+p_min = 10 # minimum pressure head
 h_min = np.tile(elevation, (1, nt))
 h_min[d_opt > 0] += p_min
 h_max = np.ones([net_info['nn'], 1]) * np.max(np.vstack((h0_opt, h_0)))
@@ -248,6 +266,10 @@ for link in range(net_info['np']):
 
 eta_min = eta_min[prv_idx, :]
 eta_max = eta_max[prv_idx, :]
+
+# # enforce q and eta bounds at PCV links
+# q_min[prv_idx, :] = 0
+eta_min[:] = 0
 
 
 
@@ -299,9 +321,10 @@ def mass_constraint_rule(model, i, t):
 model.mass_constraints = Constraint(model.i_set, model.t_set, rule=mass_constraint_rule)
 
 # prv direction constraint
+prv_tol = -1e-1
 def prv_direction_rule(model, n, t):
-    return (model.eta[n, t] * model.q[prv_idx[n], t] >= 0)
-model.prv_constraints = Constraint(model.n_set, model.t_set, rule=prv_direction_rule)
+    return (model.eta[n, t] * model.q[prv_idx[n], t] >= prv_tol)
+# model.prv_constraints = Constraint(model.n_set, model.t_set, rule=prv_direction_rule)
 
 # objective function
 def objective_rule(model):
@@ -314,7 +337,7 @@ solver = SolverFactory('ipopt')
 solver.options['tol'] = 1e-3
 solver.options['max_iter'] = 1000
 solver.options['print_level'] = 5
-solver.options['linear_solver'] = 'ma57'
+# solver.options['linear_solver'] = 'ma57'
 solver.options['mu_strategy'] = 'adaptive'
 solver.options['mu_oracle'] = 'quality-function'
 solver.options['warm_start_init_point'] = 'yes'
@@ -328,17 +351,22 @@ result = solver.solve(model, tee=True)
 q_opt = np.reshape([value(model.q[i]) for i in model.q], (net_info['np'], nt))
 column_names_q = [f'q_{t+1}' for t in range(nt)]
 q_df = pd.DataFrame(q_opt, columns=column_names_q)
-q_df.insert(0, 'link_ID', link_df['link_ID'])
+q_df.insert(0, 'link_id', link_df['link_ID'])
 
 h_opt = np.reshape([value(model.h[i]) for i in model.h], (net_info['nn'], nt))
 column_names_h = [f'h_{t+1}' for t in range(nt)]
 h_df = pd.DataFrame(h_opt, columns=column_names_h)
-h_df.insert(0, 'node_ID', node_df['node_ID'])
+h_df.insert(0, 'node_id', node_df['node_ID'])
 
 eta_opt = np.reshape([value(model.eta[i]) for i in model.eta], (len(prv_idx), nt))
 column_names_eta = [f'eta_{t+1}' for t in range(nt)]
 eta_df = pd.DataFrame(eta_opt, columns=column_names_eta)
-eta_df.insert(0, 'link_ID', prv_links)
+eta_df.insert(0, 'link_id', prv_links)
+
+p_opt = h_opt - np.tile(elevation, (1, nt))
+column_names_p = [f'p_{t+1}' for t in range(nt)]
+p_df = pd.DataFrame(p_opt, columns=column_names_p)
+p_df.insert(0, 'node_id', node_df['node_ID'])
 
 
 
@@ -349,20 +377,22 @@ eta_df.insert(0, 'link_ID', prv_links)
 prv_data = []
 for idx, prv_link in enumerate(prv_links):
 
+    prv_id = prv_ids[idx]
     link_idx = prv_idx[idx]
-    flow = q_opt[link_idx, :]
+    flow = q_opt[link_idx, :] * 1000
 
-    start_node = link_df.loc[link_idx, 'start_node']
-    end_node = link_df.loc[link_idx, 'end_node']
+    start_node = link_df.loc[link_idx, 'node_out']
+    end_node = link_df.loc[link_idx, 'node_in']
     start_node_idx = node_df[node_df['node_ID'] == start_node].index[0]
     end_node_idx = node_df[node_df['node_ID'] == end_node].index[0]
     inlet_p = h_opt[start_node_idx, :] - elevation[start_node_idx]
     outlet_p = h_opt[end_node_idx, :] - elevation[end_node_idx]
-    elev = elevation[end_node_idx]
+    elev = elevation[end_node_idx][0]
     
     for t in range(nt):
         prv_data.append({
             'datetime': datetime[nt_range][t],
+            'bwfl_id': prv_id,
             'prv_link': prv_link,
             'flow': flow[t],
             'inlet_pressure': inlet_p[t],
@@ -371,25 +401,28 @@ for idx, prv_link in enumerate(prv_links):
         })
 
 prv_data_df = pd.DataFrame(prv_data)
+print(prv_data_df)
 
 fig = make_subplots(
     rows=len(prv_links), cols=1,
-    shared_xaxes=True,
-    vertical_spacing=0.02,
-    subplot_titles=prv_links,
+    shared_xaxes=False,
+    vertical_spacing=0.1,
+    subplot_titles=prv_ids,
     specs=[[{"secondary_y": True}] for _ in range(len(prv_links))]
 )
 
 for idx, prv_link in enumerate(prv_links):
     prv_df = prv_data_df[prv_data_df['prv_link'] == prv_link]
     
+    # No main legend
     fig.add_trace(
         go.Scatter(
             x=prv_df['datetime'],
             y=prv_df['inlet_pressure'],
             mode='lines',
-            name=f'inlet pressure',
-            line=dict(color=default_colors[0], dash='solid')
+            name='inlet pressure',
+            line=dict(color=default_colors[0], dash='solid'),
+            showlegend=False
         ),
         row=idx+1, col=1, secondary_y=False
     )
@@ -398,8 +431,9 @@ for idx, prv_link in enumerate(prv_links):
             x=prv_df['datetime'],
             y=prv_df['outlet_pressure'],
             mode='lines',
-            name=f'outlet pressure',
-            line=dict(color=default_colors[0], dash='solid')
+            name='outlet pressure',
+            line=dict(color=default_colors[0], dash='dash'),
+            showlegend=False
         ),
         row=idx+1, col=1, secondary_y=False
     )
@@ -408,21 +442,54 @@ for idx, prv_link in enumerate(prv_links):
             x=prv_df['datetime'],
             y=prv_df['flow'],
             mode='lines',
-            name=f'flow',
-            line=dict(color=default_colors[1], dash='solid')
+            name='flow',
+            line=dict(color=default_colors[1], dash='solid'),
+            showlegend=False
         ),
         row=idx+1, col=1, secondary_y=True
     )
+
+    # Color the primary y-axis using default_colors[0] and secondary y-axis using default_colors[1]
+    fig.update_yaxes(
+        title_text="Pressure [m]", 
+        title_font=dict(color=default_colors[0]),
+        tickfont=dict(color=default_colors[0]),
+        ticks="outside",
+        tickcolor=default_colors[0],
+        tickwidth=2,
+        showline=True,
+        linecolor=default_colors[0],
+        row=idx+1, col=1, secondary_y=False
+    )
+    
+    fig.update_yaxes(
+        title_text="Flow [L/s]", 
+        title_font=dict(color=default_colors[1]),
+        tickfont=dict(color=default_colors[1]),
+        ticks="outside",
+        tickcolor=default_colors[1],
+        tickwidth=2,
+        showline=True,
+        linecolor=default_colors[1],
+        row=idx+1, col=1, secondary_y=True
+    )
+
 fig.update_layout(
     height=300 * len(prv_links),
+    width=800,
     title_text="",
     template='simple_white'
 )
 
-fig.update_yaxes(title_text="Pressure [m]", secondary_y=False)
-fig.update_yaxes(title_text="Flow [L/s]", secondary_y=True)
-
 fig.show()
 
 
+# plot spatial pressure heads
+plot_network(vals=p_df, val_type='pressure', t=8, inp_file='split')
 
+
+
+
+
+###### STEP 8: create flow modulation profiles ######
+# insert code here...

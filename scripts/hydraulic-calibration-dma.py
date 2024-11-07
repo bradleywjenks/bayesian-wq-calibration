@@ -362,8 +362,8 @@ def loss_fun(h_field, h_sim):
     # mask = ~np.isnan(h_field_flat) & ~np.isnan(h_sim_flat)
     return (1 / len(h_field_flat)) * sum((h_sim_flat - h_field_flat) ** 2)
 
-# pressure initial residuals (train)
-h_residuals_0 = h_0[h_field_idx, :][:, train_range] - h_field[:, train_range]
+# pressure initial residuals (test)
+h_residuals_0 = h_0[h_field_idx, :][:, test_range] - h_field[:, test_range]
 residuals_0_df = pd.DataFrame(h_residuals_0, index=h_field_ids)
 residuals_0_df = residuals_0_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
 residuals_0_df = residuals_0_df.rename(columns={'index': 'bwfl_id'})
@@ -378,7 +378,7 @@ fig = px.box(
     color="dma_id",
 )
 fig.update_layout(
-    title="Pre-calibration residuals",
+    title="Pre-calibration residuals (test dataset)",
     xaxis_title="",
     yaxis_title="Pressure residual [m]",
     template='simple_white',
@@ -503,7 +503,8 @@ q_tol = 1e-8
 iter_max = 50
 delta_k = 20
 C_up_pipe = 200
-C_lo_pipe = 20
+C_lo_pipe = 40
+C_lo_valve = 1e-4
 A13 = np.zeros((net_info['np'], len(prv_idx)))
 for col, idx in enumerate(prv_idx):
     A13[idx, col] = 1
@@ -553,8 +554,7 @@ if solution_method == 'gurobi':
 # objective function
 def objective_function(m):
     return (1 / len(h_field[:, m.t_set].flatten())) * sum(
-        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set
-    )
+        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set) + 1e-2 * sum(m.theta[v] for v in m.v_set)
 model.objective = Objective(rule=objective_function, sense=minimize)
 
 # constraints
@@ -604,9 +604,14 @@ def upper_bound_rule(m, g):
     return m.Theta[g] <= C_up_pipe
 model.upper_bound_constraint = Constraint(model.g_set, rule=upper_bound_rule)
 
-def valve_constraint_rule(m, v):
-    return m.theta[v] == C_0[v]
-model.valve_constraint = Constraint(model.v_set, rule=valve_constraint_rule)
+# def valve_constraint_rule(m, v):
+#     return m.theta[v] == C_0[v]
+# model.valve_constraint = Constraint(model.v_set, rule=valve_constraint_rule)
+
+def lower_bound_valve_rule(m, v):
+    return m.theta[v] >= C_lo_valve
+model.lower_bound_valve_constraint = Constraint(model.v_set, rule=lower_bound_valve_rule)
+
 
 if solution_method == 'gurobi':
 
@@ -651,7 +656,6 @@ if solution_method == 'ipopt':
 
 elif solution_method == 'gurobi':
     solver = SolverFactory("gurobi")
-    solver.options['FeasibilityTol'] = 1e-3
     solver.options['OptimalityTol'] = 1e-3
     print(f"{'iter':<10} {'objval':<15} {'Ki':<10} {'delta':<10}")     
     print(f"{0:<5} {objval_k:<15.6f} {Ki:<10.6f} {delta_k:<10.6f}")         
@@ -688,34 +692,32 @@ elif solution_method == 'gurobi':
 ###### Step 12: plot calibration results ######
 
 # pressure residuals (test)
-q_opt, h_opt = hydraulic_solver(wdn, d[:, test_range], h0[:, test_range], theta_opt, eta[:, test_range])
-# h_residuals_opt = h_opt[h_field_idx, :][:, test_range] - h_field[:, test_range]
-# residuals_opt_df = pd.DataFrame(h_residuals_opt, index=h_field_ids)
-# residuals_opt_df = residuals_opt_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
-# residuals_opt_df = residuals_opt_df.rename(columns={'index': 'bwfl_id'})
-# residuals_opt_df['dma_id'] = residuals_opt_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
+q_opt, h_opt = hydraulic_solver(wdn, d, h0, theta_opt, eta)
+h_residuals_opt = h_opt[h_field_idx, :][:, test_range] - h_field[:, test_range]
+residuals_opt_df = pd.DataFrame(h_residuals_opt, index=h_field_ids)
+residuals_opt_df = residuals_opt_df.reset_index().melt(id_vars='index', var_name='time_index', value_name='residual')
+residuals_opt_df = residuals_opt_df.rename(columns={'index': 'bwfl_id'})
+residuals_opt_df['dma_id'] = residuals_opt_df['bwfl_id'].map(pressure_device_id.set_index('bwfl_id')['dma_id'])
 
-print(h_opt.shape)
-
-# fig = px.box(
-#     residuals_opt_df, 
-#     x="bwfl_id",
-#     y="residual",
-#     color="dma_id",
-# )
-# fig.update_layout(
-#     title="Post-calibration residuals (test dataset)",
-#     xaxis_title="",
-#     yaxis_title="Pressure residual [m]",
-#     template='simple_white',
-#     height=450,
-#     legend_title="DMA",
-#     boxmode="overlay",
-#     xaxis=dict(
-#         tickangle=45,
-#     )
-# )
-# fig.show()
+fig = px.box(
+    residuals_opt_df, 
+    x="bwfl_id",
+    y="residual",
+    color="dma_id",
+)
+fig.update_layout(
+    title="Post-calibration residuals (test dataset)",
+    xaxis_title="",
+    yaxis_title="Pressure residual [m]",
+    template='simple_white',
+    height=450,
+    legend_title="DMA",
+    boxmode="overlay",
+    xaxis=dict(
+        tickangle=45,
+    )
+)
+fig.show()
 
 
 # optimized HW and local loss coefficients

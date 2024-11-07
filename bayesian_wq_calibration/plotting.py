@@ -6,17 +6,20 @@ import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
 from bayesian_wq_calibration.epanet import sensor_model_id
 from bayesian_wq_calibration.data import load_network_data
-from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE
+from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE, SPLIT_INP_FILE
 
 
 
 """"
     Main network plotting function
 """
-def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_sensors=False, prvs=False, dbvs=False, grouping=None):
+def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_sensors=False, prvs=False, dbvs=False, grouping=None, vals=None, val_type='pressure', t=0, inp_file='full'):
 
     # unload data
-    wdn = load_network_data(NETWORK_DIR / INP_FILE)
+    if inp_file == 'full':
+        wdn = load_network_data(NETWORK_DIR / INP_FILE)
+    elif inp_file == 'split':
+        wdn = load_network_data(NETWORK_DIR / SPLIT_INP_FILE)
     link_df = wdn.link_df
     node_df = wdn.node_df
     net_info = wdn.net_info
@@ -204,6 +207,62 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
             'valve': 'black'
         }
 
+    if vals is not None:
+        if val_type == 'pressure':
+            vals_df = vals.set_index('node_id')[f'p_{t}']
+            junction_vals = [vals_df[node] - node_df.loc[node_df['node_ID'] == node, 'elev'].to_numpy()[0] for node in net_info['junction_names']]
+            reservoir_vals = [0 for node in net_info['reservoir_names']]
+
+            junction_nodes = net_info['junction_names']
+            reservoir_nodes = net_info['reservoir_names']
+
+            junction_x = [pos[node][0] for node in junction_nodes]
+            junction_y = [pos[node][1] for node in junction_nodes]
+            reservoir_x = [pos[node][0] for node in reservoir_nodes]
+            reservoir_y = [pos[node][1] for node in reservoir_nodes]
+
+            min_val = min(junction_vals + reservoir_vals)
+            max_val = max(junction_vals + reservoir_vals)
+
+            junction_val_trace = go.Scatter(
+                x=junction_x,
+                y=junction_y,
+                mode='markers',
+                marker=dict(
+                    size=6,
+                    color=junction_vals,
+                    colorscale='RdYlBu',
+                    cmin=min_val,
+                    cmax=max_val,
+                    colorbar=dict(
+                        title="pressure head [m]",
+                        titleside="right"
+                    ),
+                    symbol='circle'
+                ),
+                text=[f"Node ID: {node}<br>Pressure: {val:.1f} m" for node, val in zip(junction_nodes, junction_vals)],
+                hoverinfo='text',
+                name="junctions"
+            )
+
+            reservoir_val_trace = go.Scatter(
+                x=reservoir_x,
+                y=reservoir_y,
+                mode='markers',
+                marker=dict(
+                    size=16,
+                    color=reservoir_vals,
+                    colorscale='RdYlBu',
+                    cmin=min_val,
+                    cmax=max_val,
+                    symbol='square'
+                ),
+                text=[f"Node ID: {node}<br>Pressure: {val:.1f} m" for node, val in zip(reservoir_nodes, reservoir_vals)],
+                hoverinfo='text',
+                name="reservoirs"
+            )
+
+
     fig = go.Figure()
 
     if grouping is not None:
@@ -255,7 +314,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
     if reservoir:
         fig.add_trace(reservoir_trace)
 
-    if grouping is None:
+    if grouping is None or vals is None:
         fig.add_trace(node_trace)
 
     if wq_sensors:
@@ -267,8 +326,16 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
     if pressure_sensors:
         fig.add_trace(pressure_trace)
 
+    if vals is not None:
+        if val_type == 'pressure':
+            fig.add_trace(junction_val_trace)
+            fig.add_trace(reservoir_val_trace)
+        show_legend = False
+    else:
+        show_legend = True
+
     fig.update_layout(
-        showlegend=True,
+        showlegend=show_legend,
         hovermode='closest',
         margin=dict(b=0, l=0, r=0, t=40),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
