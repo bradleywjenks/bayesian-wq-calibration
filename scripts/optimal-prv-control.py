@@ -58,6 +58,7 @@ prv_dir = valve_info['prv_dir']
 prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
 prv_settings = valve_info['prv_settings']
 prv_ids = ['Lodge Causeway PRV', 'Stoke Lane PRV', 'Woodland Way PRV', 'Cold Harbour Lane PRV']
+critical_nodes = ['node_2755', 'node_1266', 'node_2552', 'node_2780'] # ['BWFL 22 (CP)', 'BWFL 9 (CP)', 'BWFL 16 (CP)', 'Cold Harbour Lane (CP)']
 
 
 

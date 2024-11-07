@@ -554,7 +554,7 @@ if solution_method == 'gurobi':
 # objective function
 def objective_function(m):
     return (1 / len(h_field[:, m.t_set].flatten())) * sum(
-        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set) + 1e-2 * sum(m.theta[v] for v in m.v_set)
+        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set) + 1e-4 * sum(m.theta[v] for v in m.v_set)
 model.objective = Objective(rule=objective_function, sense=minimize)
 
 # constraints
