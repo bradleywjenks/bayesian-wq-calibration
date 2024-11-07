@@ -301,7 +301,7 @@ for idx, link in enumerate(prv_links):
 
 ###### Step 7: split train/test data ######
 n_total = len(datetime)
-n_train = 1 * 24 * 4
+n_train = 1 * 4
 # n_train = 4 * 24 * 4
 
 train_range = range(n_train)
@@ -461,6 +461,8 @@ fig.show()
 # functions
 def linear_approx_calibration(wdn, q, C):
 
+    A12 = wdn.A12
+    A10 = wdn.A10
     net_info = wdn.net_info
     link_df = wdn.link_df
 
@@ -471,18 +473,14 @@ def linear_approx_calibration(wdn, q, C):
 
     for idx, row in link_df.iterrows():
         if row['link_type'] == 'pipe':
-            K_cms = 10.67 * row['length'] * (C[idx] ** -row['n_exp']) * (row['diameter'] ** -4.8704)
-            # K_lps = ((1e-3) ** n_exp[idx]) * K_cms
-            K[idx] = K_cms
-            b1_k[idx] = K_cms
-            b2_k[idx] = (-n_exp[idx] * K_cms) / C[idx]
+            K[idx] = 10.67 * row['length'] * (C[idx] ** -row['n_exp']) * (row['diameter'] ** -4.8704)
+            b1_k[idx] = copy.copy(K[idx])
+            b2_k[idx] = (-n_exp[idx] * K[idx]) / C[idx]
 
         elif row['link_type'] == 'valve':
-            K_cms = (8 / (np.pi ** 2 * 9.81)) * (row['diameter'] ** -4) * C[idx]
-            # K_lps = ((1e-3) ** n_exp[idx]) * K_cms
-            K[idx] = K_cms
-            b1_k[idx] = -n_exp[idx] * K_cms
-            b2_k[idx] = K_cms/ C[idx]
+            K[idx] = (8 / (np.pi ** 2 * 9.81)) * (row['diameter'] ** -4) * C[idx]
+            b1_k[idx] = -n_exp[idx] * copy.copy(K[idx])
+            b2_k[idx] = copy.copy(K[idx]) / C[idx]
 
     a11_k = np.tile(K, q.shape[1]) * np.abs(q) ** (n_exp - 1)
     b1_k = np.tile(b1_k, q.shape[1]) * np.abs(q) ** (n_exp - 1)
@@ -496,7 +494,7 @@ diameter = link_df['diameter'].astype(float).to_numpy().reshape(-1, 1)
 
 
 #### SCP algorithm ####
-solution_method = 'ipopt' # 'gurobi', 'ipopt'
+solution_method = 'gurobi' # 'gurobi', 'ipopt'
 
 Ki = np.inf
 q_tol = 1e-8
@@ -661,7 +659,9 @@ elif solution_method == 'gurobi':
     print(f"{0:<5} {objval_k:<15.6f} {Ki:<10.6f} {delta_k:<10.6f}")         
     for k in range(1, iter_max+1):
         results = solver.solve(model, tee=True)
-        objval_convex = value(model.objective)
+        h_convex = np.array([model.h[i, t].value for i in model.i_set for t in model.t_set]).reshape(h_k.shape)
+        objval_convex = loss_fun(h_field[:, train_range], h_convex[h_field_idx, :][:, train_range])
+        # objval_convex = value(model.objective)
         print(objval_convex)
         theta_tilde = np.array([model.theta[j].value for j in model.j_set])
         q_tilde, h_tilde = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_tilde, eta[:, train_range])
