@@ -64,7 +64,7 @@ critical_nodes = ['node_2697', 'node_1266', 'node_2552', 'node_2661'] # ['BWFL 2
 
 
 ###### STEP 2: load sensor data ######
-data_period = 20     # change data period!!!
+data_period = 19     # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
 flow_device_id = sensor_model_id('flow')
 pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-pressure.csv")
@@ -464,7 +464,6 @@ for idx, prv_link in enumerate(prv_links):
         tickfont=dict(color=default_colors[0]),
         ticks="outside",
         tickcolor=default_colors[0],
-        tickwidth=2,
         showline=True,
         linecolor=default_colors[0],
         row=idx+1, col=1, secondary_y=False
@@ -476,7 +475,6 @@ for idx, prv_link in enumerate(prv_links):
         tickfont=dict(color=default_colors[1]),
         ticks="outside",
         tickcolor=default_colors[1],
-        tickwidth=2,
         showline=True,
         linecolor=default_colors[1],
         row=idx+1, col=1, secondary_y=True
@@ -515,17 +513,17 @@ for idx, prv_link in enumerate(prv_links):
     fm_curve_step = (round(flow_max) + 10) / fm_curve_size
     x = np.arange(0, fm_curve_size) * fm_curve_step
 
-    fm_data['prv_id'] = prv_ids[idx]
-    fm_data['prv_link'] = prv_link
+    fm_data['prv_id'] = [prv_ids[idx]] * len(x) 
+    fm_data['prv_link'] = [prv_link] * len(x) 
     fm_data['flow'] = x
     fm_data['outlet_pressure'] = np.polyval(coeff, x)
     fm_data.loc[0, 'outlet_pressure'] = fm_data['outlet_pressure'].max()
     fm_data.loc[0, 'flow'] = 0
 
-    fm_curve_df = pd.concat(fm_curve_df, fm_data)
+    fm_curve_df = pd.concat([fm_curve_df, fm_data])
 
 # save flow modulation curve to csv
-fm_curve_df.to_csv(RESULTS_DIR / f'fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(2)}', index=False)
+fm_curve_df.to_csv(RESULTS_DIR / f'fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(2)}.csv', index=False)
 
 # plotting
 fig = make_subplots(
@@ -560,9 +558,17 @@ for idx, prv_link in enumerate(prv_links):
         ),
         row=idx+1, col=1,
     )
+    fig.update_yaxes(
+        title_text="Outlet pressure [m]", 
+        ticks="outside",
+        row=idx+1, col=1, secondary_y=False
+    )
+    fig.update_xaxes(
+        title_text="Flow [L/s]", 
+        ticks="outside",
+        row=idx+1, col=1,
+    )
 fig.update_layout(
-    xaxis_title='Flow [L/s]',
-    yaxis_title='Outler pressure [m]',
     legend_title_text='',
     template='simple_white',
     height=300 * len(prv_links),
