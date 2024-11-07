@@ -210,7 +210,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
     if vals is not None:
         if val_type == 'pressure':
             vals_df = vals.set_index('node_id')[f'p_{t}']
-            junction_vals = [vals_df[node] - node_df.loc[node_df['node_ID'] == node, 'elev'].to_numpy()[0] for node in net_info['junction_names']]
+            junction_vals = [vals_df[node] for node in net_info['junction_names']]
             reservoir_vals = [0 for node in net_info['reservoir_names']]
 
             junction_nodes = net_info['junction_names']
@@ -235,12 +235,12 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
                     cmin=min_val,
                     cmax=max_val,
                     colorbar=dict(
-                        title="pressure head [m]",
+                        title="Pressure head [m]",
                         titleside="right"
                     ),
                     symbol='circle'
                 ),
-                text=[f"Node ID: {node}<br>Pressure: {val:.1f} m" for node, val in zip(junction_nodes, junction_vals)],
+                text=[f"{node}<br>{val:.1f} m" for node, val in zip(junction_nodes, junction_vals)],
                 hoverinfo='text',
                 name="junctions"
             )
@@ -257,7 +257,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
                     cmax=max_val,
                     symbol='square'
                 ),
-                text=[f"Node ID: {node}<br>Pressure: {val:.1f} m" for node, val in zip(reservoir_nodes, reservoir_vals)],
+                text=[f"{node}<br>{val:.1f} m" for node, val in zip(reservoir_nodes, reservoir_vals)],
                 hoverinfo='text',
                 name="reservoirs"
             )
