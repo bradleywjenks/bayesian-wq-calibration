@@ -58,7 +58,7 @@ prv_dir = valve_info['prv_dir']
 prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
 prv_settings = valve_info['prv_settings']
 prv_ids = ['Lodge Causeway PRV', 'Stoke Lane PRV', 'Woodland Way PRV', 'Cold Harbour Lane PRV']
-critical_nodes = ['node_2755', 'node_1266', 'node_2552', 'node_2780'] # ['BWFL 22 (CP)', 'BWFL 9 (CP)', 'BWFL 16 (CP)', 'Cold Harbour Lane (CP)']
+critical_nodes = ['node_2697', 'node_1266', 'node_2552', 'node_2661'] # ['BWFL 22 (CP)', 'BWFL 9 (CP)', 'BWFL 16 (CP)', 'Cold Harbour Lane (CP)']
 
 
 
@@ -241,7 +241,7 @@ w = np.abs(A12.T) * np.array(L) / 2
 azp_weights = w / np.sum(w)
 
 # h and q variable bounds
-p_min = 10 # minimum pressure head
+p_min = 15 # minimum pressure head
 h_min = np.tile(elevation, (1, nt))
 h_min[d_opt > 0] += p_min
 h_max = np.ones([net_info['nn'], 1]) * np.max(np.vstack((h0_opt, h_0)))
@@ -388,7 +388,12 @@ for idx, prv_link in enumerate(prv_links):
     end_node_idx = node_df[node_df['node_ID'] == end_node].index[0]
     inlet_p = h_opt[start_node_idx, :] - elevation[start_node_idx]
     outlet_p = h_opt[end_node_idx, :] - elevation[end_node_idx]
-    elev = elevation[end_node_idx][0]
+    prv_elev = elevation[end_node_idx][0]
+
+    critical_node = critical_nodes[idx]
+    critical_node_idx = node_df[node_df['node_ID'] == critical_node].index[0]
+    critical_p = h_opt[critical_node_idx, :] - elevation[critical_node_idx]
+    critical_elev = elevation[critical_node_idx]
     
     for t in range(nt):
         prv_data.append({
@@ -398,7 +403,9 @@ for idx, prv_link in enumerate(prv_links):
             'flow': flow[t],
             'inlet_pressure': inlet_p[t],
             'outlet_pressure': outlet_p[t],
-            'elevation': elev
+            'prv_elevation': prv_elev,
+            'critical_pressure': critical_p[t],
+            'critical_elevation': critical_elev
         })
 
 prv_data_df = pd.DataFrame(prv_data)
@@ -415,13 +422,12 @@ fig = make_subplots(
 for idx, prv_link in enumerate(prv_links):
     prv_df = prv_data_df[prv_data_df['prv_link'] == prv_link]
     
-    # No main legend
     fig.add_trace(
         go.Scatter(
             x=prv_df['datetime'],
-            y=prv_df['inlet_pressure'],
+            y=prv_df['outlet_pressure'],
             mode='lines',
-            name='inlet pressure',
+            name='outlet pressure',
             line=dict(color=default_colors[0], dash='solid'),
             showlegend=False
         ),
@@ -430,9 +436,9 @@ for idx, prv_link in enumerate(prv_links):
     fig.add_trace(
         go.Scatter(
             x=prv_df['datetime'],
-            y=prv_df['outlet_pressure'],
+            y=prv_df['critical_pressure'],
             mode='lines',
-            name='outlet pressure',
+            name='critical pressure',
             line=dict(color=default_colors[0], dash='dash'),
             showlegend=False
         ),
