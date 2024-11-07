@@ -409,8 +409,9 @@ for idx, prv_link in enumerate(prv_links):
         })
 
 prv_data_df = pd.DataFrame(prv_data)
-print(prv_data_df)
 
+
+# data plots
 fig = make_subplots(
     rows=len(prv_links), cols=1,
     shared_xaxes=False,
@@ -499,4 +500,73 @@ plot_network(vals=p_df, val_type='pressure', t=8, inp_file='split')
 
 
 ###### STEP 8: create flow modulation profiles ######
-# insert code here...
+# flow modulation curves
+fm_curve_df = pd.DataFrame()
+for idx, prv_link in enumerate(prv_links):
+
+    fm_data = pd.DataFrame()
+    flow = prv_data_df[prv_data_df['prv_link'] == prv_link]['flow'].ravel()
+    outlet_p = prv_data_df[prv_data_df['prv_link'] == prv_link]['outlet_pressure'].ravel()
+
+    coeff = np.polyfit(flow, outlet_p, 2)
+    flow_min = min(flow)
+    flow_max = max(flow)
+    fm_curve_size = int((round(flow_max) + 10) * 4 + 1) # additional step for lower bound
+    fm_curve_step = (round(flow_max) + 10) / fm_curve_size
+    x = np.arange(0, fm_curve_size) * fm_curve_step
+
+    fm_data['prv_id'] = prv_ids[idx]
+    fm_data['prv_link'] = prv_link
+    fm_data['flow'] = x
+    fm_data['outlet_pressure'] = np.polyval(coeff, x)
+    fm_data.loc[0, 'outlet_pressure'] = fm_data['outlet_pressure'].max()
+    fm_data.loc[0, 'flow'] = 0
+
+    fm_curve_df = pd.concat(fm_curve_df, fm_data)
+
+# save flow modulation curve to csv
+fm_curve_df.to_csv(RESULTS_DIR / f'fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(2)}', index=False)
+
+# plotting
+fig = make_subplots(
+    rows=len(prv_links), cols=1,
+    shared_xaxes=False,
+    vertical_spacing=0.1,
+    subplot_titles=prv_ids,
+)
+
+for idx, prv_link in enumerate(prv_links):
+    prv_df = prv_data_df[prv_data_df['prv_link'] == prv_link]
+    fm_df = fm_curve_df[fm_curve_df['prv_link'] == prv_link]
+    fig.add_trace(
+        go.Scatter(
+            x=prv_df['flow'],
+            y=prv_df['outlet_pressure'],
+            mode='markers',
+            name='outlet pressure',
+            line=dict(color=default_colors[0]),
+            showlegend=False
+        ),
+        row=idx+1, col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=fm_df['flow'],
+            y=fm_df['outlet_pressure'],
+            mode='lines',
+            name='flow modulation curve',
+            line=dict(color=default_colors[1]),
+            showlegend=False
+        ),
+        row=idx+1, col=1,
+    )
+fig.update_layout(
+    xaxis_title='Flow [L/s]',
+    yaxis_title='Outler pressure [m]',
+    legend_title_text='',
+    template='simple_white',
+    height=300 * len(prv_links),
+    width=600
+)
+
+fig.show()
