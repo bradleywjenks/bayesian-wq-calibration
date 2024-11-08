@@ -60,7 +60,7 @@ prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
 
 
 ###### STEP 2: load sensor data ######
-data_period = 16     # change data period!!!
+data_period = 15     # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
 flow_device_id = sensor_model_id('flow')
 pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-pressure.csv")
@@ -301,7 +301,7 @@ for idx, link in enumerate(prv_links):
 
 ###### Step 7: split train/test data ######
 n_total = len(datetime)
-n_train = 1 * 4
+n_train = 1 * 24 * 4
 # n_train = 4 * 24 * 4
 
 train_range = range(n_train)
@@ -312,7 +312,7 @@ test_range = range(n_train, n_total)
 
 ###### Step 8: get sensor data ######
 # pressure devices
-not_these_pressure_ids = ['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (inlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (inlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'BWFL 41', 'BWFL_A01R']
+not_these_pressure_ids = ['BWFL 19', 'Woodland Way PRV (inlet)', 'Woodland Way PRV (outlet)', 'Lodge Causeway PRV (outlet)', 'Stoke Lane PRV (outlet)', 'Coldharbour Lane PRV (outlet)', 'BWFL 41', 'BWFL_A01R']
 h_field_ids = pressure_device_id[~pressure_device_id['bwfl_id'].isin(not_these_pressure_ids)]['bwfl_id'].unique()
 
 h_field = np.zeros((len(h_field_ids), len(datetime)))
@@ -362,6 +362,12 @@ def loss_fun(h_field, h_sim):
     # mask = ~np.isnan(h_field_flat) & ~np.isnan(h_sim_flat)
     return (1 / len(h_field_flat)) * sum((h_sim_flat - h_field_flat) ** 2)
 
+def loss_fun_reg(h_field, h_sim, theta, rho):
+    h_field_flat = h_field.flatten()
+    h_sim_flat = h_sim.flatten()    
+    # mask = ~np.isnan(h_field_flat) & ~np.isnan(h_sim_flat)
+    return (1 / len(h_field_flat)) * sum((h_sim_flat - h_field_flat) ** 2) + rho * sum(theta[v] for v in valve_idx)
+
 # pressure initial residuals (test)
 h_residuals_0 = h_0[h_field_idx, :][:, test_range] - h_field[:, test_range]
 residuals_0_df = pd.DataFrame(h_residuals_0, index=h_field_ids)
@@ -390,6 +396,7 @@ fig.update_layout(
     )
 )
 fig.show()
+fig.write_html(RESULTS_DIR / f"uncalibrated-residuals-period-{str(data_period).zfill(2)}.html")
 
 
 
@@ -500,8 +507,8 @@ Ki = np.inf
 q_tol = 1e-8
 iter_max = 50
 delta_k = 20
-C_up_pipe = 200
-C_lo_pipe = 40
+C_up_pipe = 160
+C_lo_pipe = 45
 C_lo_valve = 1e-4
 A13 = np.zeros((net_info['np'], len(prv_idx)))
 for col, idx in enumerate(prv_idx):
@@ -550,9 +557,10 @@ if solution_method == 'gurobi':
 
 
 # objective function
+rho = 1e-4
 def objective_function(m):
     return (1 / len(h_field[:, m.t_set].flatten())) * sum(
-        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set) + 1e-4 * sum(m.theta[v] for v in m.v_set)
+        (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set) + rho * sum(m.theta[v] for v in m.v_set)
 model.objective = Objective(rule=objective_function, sense=minimize)
 
 # constraints
@@ -654,19 +662,18 @@ if solution_method == 'ipopt':
 
 elif solution_method == 'gurobi':
     solver = SolverFactory("gurobi")
-    solver.options['OptimalityTol'] = 1e-3
+    solver.options['OptimalityTol'] = 1e-4
+    solver.options['NumericFocus'] = 3
     print(f"{'iter':<10} {'objval':<15} {'Ki':<10} {'delta':<10}")     
     print(f"{0:<5} {objval_k:<15.6f} {Ki:<10.6f} {delta_k:<10.6f}")         
     for k in range(1, iter_max+1):
-        results = solver.solve(model, tee=True)
+        results = solver.solve(model, tee=False)
         h_convex = np.array([model.h[i, t].value for i in model.i_set for t in model.t_set]).reshape(h_k.shape)
-        objval_convex = loss_fun(h_field[:, train_range], h_convex[h_field_idx, :][:, train_range])
-        # objval_convex = value(model.objective)
-        print(objval_convex)
         theta_tilde = np.array([model.theta[j].value for j in model.j_set])
+        objval_convex = loss_fun_reg(h_field[:, train_range], h_convex[h_field_idx, :][:, train_range], theta_tilde, rho)
+        # objval_convex = value(model.objective)
         q_tilde, h_tilde = hydraulic_solver(wdn, d[:, train_range], h0[:, train_range], theta_tilde, eta[:, train_range])
-        objval_tilde = loss_fun(h_field[:, train_range], h_tilde[h_field_idx, :][:, train_range])
-        print(objval_tilde)
+        objval_tilde = loss_fun_reg(h_field[:, train_range], h_tilde[h_field_idx, :][:, train_range], theta_tilde, rho)
 
         if (objval_k - objval_tilde) / abs(objval_k - objval_convex) >= 0.1:
             success = True
@@ -718,16 +725,18 @@ fig.update_layout(
     )
 )
 fig.show()
+fig.write_html(RESULTS_DIR / f"calibrated-residuals-period-{str(data_period).zfill(2)}.html")
 
 
 # optimized HW and local loss coefficients
 data = {
-    'C': [theta_opt[idx] for idx, row in link_df.iterrows()],
+    'index': list(range(len(theta_opt))),
     'type': ['pipe' if row['link_type'] == 'pipe' else 'valve' for idx, row in link_df.iterrows()],
-    'index': list(range(len(theta_opt))) 
+    'C': [theta_opt[idx] for idx, row in link_df.iterrows()],
+
 }
 df = pd.DataFrame(data)
-df.to_csv(RESULTS_DIR / 'calibrated_coefficients.csv', index=True)
+df.to_csv(RESULTS_DIR / f'calibrated-coefficients-period-{str(data_period).zfill(2)}.csv', index=False)
 pipe_df = df[df['type'] == 'pipe'].reset_index(drop=True)
 valve_df = df[df['type'] == 'valve'].reset_index(drop=True)
 
@@ -770,3 +779,4 @@ fig.update_xaxes(title_text="Valve link", row=2, col=1)
 fig.update_yaxes(title_text="Calibrated HW coefficient", row=1, col=1)
 fig.update_yaxes(title_text="Calibrated valve coefficient", row=2, col=1)
 fig.show()
+fig.write_html(RESULTS_DIR / f"calibrated-coefficients-period-{str(data_period).zfill(2)}.html")

@@ -64,7 +64,7 @@ critical_nodes = ['node_2697', 'node_1266', 'node_2552', 'node_2661'] # ['BWFL 2
 
 
 ###### STEP 2: load sensor data ######
-data_period = 19     # change data period!!!
+data_period = 18     # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
 flow_device_id = sensor_model_id('flow')
 pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-pressure.csv")
@@ -202,6 +202,7 @@ if np.isnan(d).any():
 day = 0
 nt_range = range(day*96, (day+1)*96)
 nt = len(nt_range)
+datetime_range = flow_df['datetime'].sort_values().unique()[nt_range]
 
 # make A13 matrix (pcv mapping)
 A13 = np.zeros([net_info['np'], len(prv_idx)])
@@ -244,6 +245,7 @@ azp_weights = w / np.sum(w)
 p_min = 15 # minimum pressure head
 h_min = np.tile(elevation, (1, nt))
 h_min[d_opt > 0] += p_min
+h_min[d_opt == 0] += 5
 h_max = np.ones([net_info['nn'], 1]) * np.max(np.vstack((h0_opt, h_0)))
 h_max = np.tile(h_max, (1, nt))
 
@@ -321,10 +323,10 @@ def mass_constraint_rule(model, i, t):
     return (sum(A12.T[i, j] * model.q[j, t] for j in links_map[i][0]) == d_opt[i, t])
 model.mass_constraints = Constraint(model.i_set, model.t_set, rule=mass_constraint_rule)
 
-# prv direction constraint
-prv_tol = -1e-1
-def prv_direction_rule(model, n, t):
-    return (model.eta[n, t] * model.q[prv_idx[n], t] >= prv_tol)
+# # prv direction constraint
+# prv_tol = -1e-1
+# def prv_direction_rule(model, n, t):
+#     return (model.eta[n, t] * model.q[prv_idx[n], t] >= prv_tol)
 # model.prv_constraints = Constraint(model.n_set, model.t_set, rule=prv_direction_rule)
 
 # objective function
@@ -488,6 +490,7 @@ fig.update_layout(
 )
 
 fig.show()
+fig.write_html(RESULTS_DIR / f"optimal-prv-settings-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.html")
 
 
 # plot spatial pressure heads
@@ -509,21 +512,25 @@ for idx, prv_link in enumerate(prv_links):
     coeff = np.polyfit(flow, outlet_p, 2)
     flow_min = min(flow)
     flow_max = max(flow)
-    fm_curve_size = int((round(flow_max) + 10) * 4 + 1) # additional step for lower bound
-    fm_curve_step = (round(flow_max) + 10) / fm_curve_size
-    x = np.arange(0, fm_curve_size) * fm_curve_step
+    fm_curve_min = int((round(flow_min)*0.75))
+    fm_curve_max = int((round(flow_max)*1.25))
+    x = np.arange(0, fm_curve_max)
 
     fm_data['prv_id'] = [prv_ids[idx]] * len(x) 
     fm_data['prv_link'] = [prv_link] * len(x) 
     fm_data['flow'] = x
     fm_data['outlet_pressure'] = np.polyval(coeff, x)
-    fm_data.loc[0, 'outlet_pressure'] = fm_data['outlet_pressure'].max()
-    fm_data.loc[0, 'flow'] = 0
-
+    new_row = {
+        'prv_id': prv_ids[idx],
+        'prv_link': prv_link,
+        'flow': 0,
+        'outlet_pressure': fm_data['outlet_pressure'].max()
+    }
+    fm_data = pd.concat([pd.DataFrame([new_row]), fm_data], ignore_index=True)
     fm_curve_df = pd.concat([fm_curve_df, fm_data])
 
 # save flow modulation curve to csv
-fm_curve_df.to_csv(RESULTS_DIR / f'fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(2)}.csv', index=False)
+fm_curve_df.to_csv(RESULTS_DIR / f'fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.csv', index=False)
 
 # plotting
 fig = make_subplots(
@@ -534,15 +541,28 @@ fig = make_subplots(
 )
 
 for idx, prv_link in enumerate(prv_links):
+
     prv_df = prv_data_df[prv_data_df['prv_link'] == prv_link]
     fm_df = fm_curve_df[fm_curve_df['prv_link'] == prv_link]
+
     fig.add_trace(
         go.Scatter(
             x=prv_df['flow'],
             y=prv_df['outlet_pressure'],
             mode='markers',
-            name='outlet pressure',
+            name='simulated',
             line=dict(color=default_colors[0]),
+            showlegend=False
+        ),
+        row=idx+1, col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=flow_df[(flow_df['bwfl_id'] == prv_ids[idx]) & (flow_df['datetime'].isin(datetime_range))]['mean'],
+            y=pressure_df[(pressure_df['bwfl_id'] == prv_ids[idx]+' (outlet)') & (pressure_df['datetime'].isin(datetime_range))]['mean'],
+            mode='markers',
+            name='data',
+            line=dict(color='black'),
             showlegend=False
         ),
         row=idx+1, col=1,
@@ -576,3 +596,4 @@ fig.update_layout(
 )
 
 fig.show()
+fig.write_html(RESULTS_DIR / f"fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.html")
