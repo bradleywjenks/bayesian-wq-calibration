@@ -63,6 +63,7 @@ critical_nodes = ['node_2697', 'node_1266', 'node_2552', 'node_2661'] # ['BWFL 2
 
 
 
+
 ###### STEP 2: load sensor data ######
 data_period = 18     # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
