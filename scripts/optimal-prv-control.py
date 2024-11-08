@@ -65,7 +65,7 @@ critical_nodes = ['node_2697', 'node_1266', 'node_2552', 'node_2661'] # ['BWFL 2
 
 
 ###### STEP 2: load sensor data ######
-data_period = 18     # change data period!!!
+data_period = 20     # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
 flow_device_id = sensor_model_id('flow')
 pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-pressure.csv")
@@ -513,21 +513,27 @@ for idx, prv_link in enumerate(prv_links):
     coeff = np.polyfit(flow, outlet_p, 2)
     flow_min = min(flow)
     flow_max = max(flow)
-    fm_curve_min = int((round(flow_min)*0.75))
+    fm_curve_min = int((round(flow_min)*0.99))
     fm_curve_max = int((round(flow_max)*1.25))
-    x = np.arange(0, fm_curve_max)
+    x = np.arange(fm_curve_min, fm_curve_max)
 
     fm_data['prv_id'] = [prv_ids[idx]] * len(x) 
     fm_data['prv_link'] = [prv_link] * len(x) 
     fm_data['flow'] = x
     fm_data['outlet_pressure'] = np.polyval(coeff, x)
-    new_row = {
+    zero_row_1 = {
         'prv_id': prv_ids[idx],
         'prv_link': prv_link,
         'flow': 0,
         'outlet_pressure': fm_data['outlet_pressure'].max()
     }
-    fm_data = pd.concat([pd.DataFrame([new_row]), fm_data], ignore_index=True)
+    zero_row_2 = {
+        'prv_id': prv_ids[idx],
+        'prv_link': prv_link,
+        'flow': 0,
+        'outlet_pressure': fm_data['outlet_pressure'].min()
+    }
+    fm_data = pd.concat([pd.DataFrame([zero_row_1]), pd.DataFrame([zero_row_2]), fm_data], ignore_index=True)
     fm_curve_df = pd.concat([fm_curve_df, fm_data])
 
 # save flow modulation curve to csv
