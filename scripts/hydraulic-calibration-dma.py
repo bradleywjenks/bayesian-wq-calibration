@@ -396,7 +396,7 @@ fig.update_layout(
     )
 )
 fig.show()
-fig.write_html(RESULTS_DIR / f"uncalibrated-residuals-period-{str(data_period).zfill(2)}.html")
+fig.write_html(RESULTS_DIR / f"hydraulics/uncalibrated-residuals-period-{str(data_period).zfill(2)}.html")
 
 
 
@@ -725,7 +725,7 @@ fig.update_layout(
     )
 )
 fig.show()
-fig.write_html(RESULTS_DIR / f"calibrated-residuals-period-{str(data_period).zfill(2)}.html")
+fig.write_html(RESULTS_DIR / f"hydraulics/calibrated-residuals-period-{str(data_period).zfill(2)}.html")
 
 
 # optimized HW and local loss coefficients
@@ -736,7 +736,7 @@ data = {
 
 }
 df = pd.DataFrame(data)
-df.to_csv(RESULTS_DIR / f'calibrated-coefficients-period-{str(data_period).zfill(2)}.csv', index=False)
+df.to_csv(RESULTS_DIR / f'hydraulics/calibrated-coefficients-period-{str(data_period).zfill(2)}.csv', index=False)
 pipe_df = df[df['type'] == 'pipe'].reset_index(drop=True)
 valve_df = df[df['type'] == 'valve'].reset_index(drop=True)
 
@@ -779,4 +779,4 @@ fig.update_xaxes(title_text="Valve link", row=2, col=1)
 fig.update_yaxes(title_text="Calibrated HW coefficient", row=1, col=1)
 fig.update_yaxes(title_text="Calibrated valve coefficient", row=2, col=1)
 fig.show()
-fig.write_html(RESULTS_DIR / f"calibrated-coefficients-period-{str(data_period).zfill(2)}.html")
+fig.write_html(RESULTS_DIR / f"hydraulics/calibrated-coefficients-period-{str(data_period).zfill(2)}.html")

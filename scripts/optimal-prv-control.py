@@ -46,7 +46,6 @@ net_info = wdn.net_info
 link_df = wdn.link_df
 node_df = wdn.node_df
 demand_df = wdn.demand_df
-C = link_df['C'].values.astype(float).reshape(-1, 1)
 D = link_df['diameter'].values.astype(float).reshape(-1, 1)
 L = link_df['length'].values.astype(float).reshape(-1, 1)
 n_exp = link_df['n_exp'].values
@@ -59,6 +58,13 @@ prv_idx = link_df[link_df['link_ID'].isin(prv_links)].index
 prv_settings = valve_info['prv_settings']
 prv_ids = ['Lodge Causeway PRV', 'Stoke Lane PRV', 'Woodland Way PRV', 'Cold Harbour Lane PRV']
 critical_nodes = ['node_2697', 'node_1266', 'node_2552', 'node_2661'] # ['BWFL 22 (CP)', 'BWFL 9 (CP)', 'BWFL 16 (CP)', 'Cold Harbour Lane (CP)']
+
+calibration_period = 15
+try:
+    calibrated_coeff = pd.read_csv(RESULTS_DIR / f"hydraulics/calibrated-coefficients-period-{str(calibration_period).zfill(2)}.csv") # load calibrated coefficients
+    C = calibrated_coeff['C'].values.astype(float).reshape(-1, 1)
+except Exception as e:
+    raise RuntimeError(f"Error loading or processing the coefficients for period {calibration_period}: {e}")
 
 
 
@@ -491,7 +497,7 @@ fig.update_layout(
 )
 
 fig.show()
-fig.write_html(RESULTS_DIR / f"optimal-prv-settings-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.html")
+fig.write_html(RESULTS_DIR / f"hydraulics/optimal-prv-settings-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.html")
 
 
 # plot spatial pressure heads
@@ -537,7 +543,7 @@ for idx, prv_link in enumerate(prv_links):
     fm_curve_df = pd.concat([fm_curve_df, fm_data])
 
 # save flow modulation curve to csv
-fm_curve_df.to_csv(RESULTS_DIR / f'fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.csv', index=False)
+fm_curve_df.to_csv(RESULTS_DIR / f'hydraulics/fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.csv', index=False)
 
 # plotting
 fig = make_subplots(
@@ -603,4 +609,4 @@ fig.update_layout(
 )
 
 fig.show()
-fig.write_html(RESULTS_DIR / f"fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.html")
+fig.write_html(RESULTS_DIR / f"hydraulics/fm-curves-period-{str(data_period).zfill(2)}-day-{str(day).zfill(1)}.html")
