@@ -395,8 +395,13 @@ fig.update_layout(
         tickangle=45,
     )
 )
-fig.show()
-fig.write_html(RESULTS_DIR / f"hydraulics/uncalibrated-residuals-period-{str(data_period).zfill(2)}.html")
+fig.add_shape(
+    type="rect",
+    xref="paper", yref="y",
+    x0=0, x1=1, y0=-2, y1=2,
+    fillcolor="lightgrey", opacity=0.3, layer="below", line_width=0
+)
+fig.write_html(RESULTS_DIR / f"hydraulics/uncalibrated-residuals-period-{str(data_period).zfill(2)}.html", auto_open=True)
 
 
 
@@ -409,55 +414,55 @@ group_mapping = {value: idx for idx, value in enumerate(C_0_pipe_unique)}
 pipe_grouping = {idx: group_mapping[val] for idx, val in enumerate(C_0_pipe)}
 num_pipe_groups = len(C_0_pipe_unique)
 
-# plot C_0 values
-data = {
-    'C_0': [C_0[idx] for idx, row in link_df.iterrows()],
-    'type': ['pipe' if row['link_type'] == 'pipe' else 'valve' for idx, row in link_df.iterrows()],
-    'index': list(range(len(C_0)))  # Use the same index for pipes and valves
-}
-df = pd.DataFrame(data)
-pipe_df = df[df['type'] == 'pipe'].reset_index(drop=True)
-valve_df = df[df['type'] == 'valve'].reset_index(drop=True)
+# # plot C_0 values
+# data = {
+#     'C_0': [C_0[idx] for idx, row in link_df.iterrows()],
+#     'type': ['pipe' if row['link_type'] == 'pipe' else 'valve' for idx, row in link_df.iterrows()],
+#     'index': list(range(len(C_0)))  # Use the same index for pipes and valves
+# }
+# df = pd.DataFrame(data)
+# pipe_df = df[df['type'] == 'pipe'].reset_index(drop=True)
+# valve_df = df[df['type'] == 'valve'].reset_index(drop=True)
 
-fig = make_subplots(rows=2, cols=1, shared_yaxes=True, vertical_spacing=0.15)
-fig.add_trace(
-    go.Scatter(
-        x=pipe_df['index'],
-        y=pipe_df['C_0'],
-        mode='markers',
-        marker=dict(
-            symbol='circle',
-            color='rgba(0,0,0,0)',
-            line=dict(color=default_colors[0], width=0.75)
-        ),
-        name='Pipe'
-    ),
-    row=1, col=1
-)
-fig.add_trace(
-    go.Scatter(
-        x=valve_df['index'],
-        y=valve_df['C_0'],
-        mode='markers',
-        marker=dict(
-            symbol='circle',
-            color='rgba(0,0,0,0)',
-            line=dict(color=default_colors[1], width=0.75)
-        ),
-        name='Valve'
-    ),
-    row=2, col=1
-)
-fig.update_layout(
-    template='simple_white',
-    height=900,
-    legend_title="Link type",
-)
-fig.update_xaxes(title_text="Pipe link", row=1, col=1)
-fig.update_xaxes(title_text="Valve link", row=2, col=1)
-fig.update_yaxes(title_text="Initial HW coefficient", row=1, col=1)
-fig.update_yaxes(title_text="Initial valve coefficient", row=2, col=1)
-fig.show()
+# fig = make_subplots(rows=2, cols=1, shared_yaxes=True, vertical_spacing=0.15)
+# fig.add_trace(
+#     go.Scatter(
+#         x=pipe_df['index'],
+#         y=pipe_df['C_0'],
+#         mode='markers',
+#         marker=dict(
+#             symbol='circle',
+#             color='rgba(0,0,0,0)',
+#             line=dict(color=default_colors[0], width=0.75)
+#         ),
+#         name='Pipe'
+#     ),
+#     row=1, col=1
+# )
+# fig.add_trace(
+#     go.Scatter(
+#         x=valve_df['index'],
+#         y=valve_df['C_0'],
+#         mode='markers',
+#         marker=dict(
+#             symbol='circle',
+#             color='rgba(0,0,0,0)',
+#             line=dict(color=default_colors[1], width=0.75)
+#         ),
+#         name='Valve'
+#     ),
+#     row=2, col=1
+# )
+# fig.update_layout(
+#     template='simple_white',
+#     height=900,
+#     legend_title="Link type",
+# )
+# fig.update_xaxes(title_text="Pipe link", row=1, col=1)
+# fig.update_xaxes(title_text="Valve link", row=2, col=1)
+# fig.update_yaxes(title_text="Initial HW coefficient", row=1, col=1)
+# fig.update_yaxes(title_text="Initial valve coefficient", row=2, col=1)
+# fig.show()
 
 
 
@@ -557,7 +562,7 @@ if solution_method == 'gurobi':
 
 
 # objective function
-rho = 1e-4
+rho = 1e-3
 def objective_function(m):
     return (1 / len(h_field[:, m.t_set].flatten())) * sum(
         (m.h[i, t] - h_field[n, t]) ** 2 for n, i in enumerate(h_field_idx) for t in m.t_set) + rho * sum(m.theta[v] for v in m.v_set)
@@ -724,8 +729,49 @@ fig.update_layout(
         tickangle=45,
     )
 )
-fig.show()
-fig.write_html(RESULTS_DIR / f"hydraulics/calibrated-residuals-period-{str(data_period).zfill(2)}.html")
+
+fig.add_shape(
+    type="rect",
+    xref="paper", yref="y",
+    x0=0, x1=1, y0=-2, y1=2,
+    fillcolor="lightgrey", opacity=0.3, layer="below", line_width=0
+)
+# fig.add_shape(
+#     type="rect",
+#     xref="paper", yref="y",
+#     x0=0, x1=1, y0=-0.75, y1=0.75,
+#     fillcolor="grey", opacity=0.4, layer="below", line_width=0
+# )
+# fig.add_shape(
+#     type="rect",
+#     xref="paper", yref="y",
+#     x0=0, x1=1, y0=-0.5, y1=0.5,
+#     fillcolor="darkgrey", opacity=0.6, layer="below", line_width=0
+# )
+
+# fig.add_annotation(
+#     x=1.02, y=2,
+#     xref="paper", yref="y",
+#     text="$\pm 2$m",
+#     showarrow=False,
+#     font=dict(size=12, color="black")
+# )
+# fig.add_annotation(
+#     x=1.02, y=0.75,
+#     xref="paper", yref="y",
+#     text="$\pm 0.75$m",
+#     showarrow=False,
+#     font=dict(size=12, color="black")
+# )
+# fig.add_annotation(
+#     x=1.02, y=0.5,
+#     xref="paper", yref="y",
+#     text="$\pm 0.5$m",
+#     showarrow=False,
+#     font=dict(size=12, color="black")
+# )
+
+fig.write_html(RESULTS_DIR / f"hydraulics/calibrated-residuals-period-{str(data_period).zfill(2)}.html", auto_open=True)
 
 
 # optimized HW and local loss coefficients
@@ -778,5 +824,4 @@ fig.update_xaxes(title_text="Pipe link", row=1, col=1)
 fig.update_xaxes(title_text="Valve link", row=2, col=1)
 fig.update_yaxes(title_text="Calibrated HW coefficient", row=1, col=1)
 fig.update_yaxes(title_text="Calibrated valve coefficient", row=2, col=1)
-fig.show()
-fig.write_html(RESULTS_DIR / f"hydraulics/calibrated-coefficients-period-{str(data_period).zfill(2)}.html")
+fig.write_html(RESULTS_DIR / f"hydraulics/calibrated-coefficients-period-{str(data_period).zfill(2)}.html", auto_open=True)
