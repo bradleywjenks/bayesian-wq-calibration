@@ -314,7 +314,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
     if reservoir:
         fig.add_trace(reservoir_trace)
 
-    if grouping is None or vals is None:
+    if grouping is None and vals is None:
         fig.add_trace(node_trace)
 
     if wq_sensors:
