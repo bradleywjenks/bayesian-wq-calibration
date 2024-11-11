@@ -71,7 +71,7 @@ except Exception as e:
 
 
 ###### STEP 2: load sensor data ######
-data_period = 20     # change data period!!!
+data_period = 19     # change data period!!!
 flow_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-flow.csv")
 flow_device_id = sensor_model_id('flow')
 pressure_df = pd.read_csv(TIMESERIES_DIR / f"processed/{str(data_period).zfill(2)}-pressure.csv")
@@ -250,9 +250,12 @@ azp_weights = w / np.sum(w)
 
 # h and q variable bounds
 p_min = 15 # minimum pressure head
+node_2751_idx = node_df[node_df['node_ID'] == 'node_2751'].index[0]
+# d_opt[node_2751_idx, :] = 1e-8
 h_min = np.tile(elevation, (1, nt))
-h_min[d_opt > 0] += p_min
-h_min[d_opt == 0] += 5
+h_min[d_opt > 0] += p_min # demand nodes
+h_min[d_opt == 0] += 5 # no-demand nodes
+h_min[node_2751_idx, :] = elevation[node_2751_idx] + 10
 h_max = np.ones([net_info['nn'], 1]) * np.max(np.vstack((h0_opt, h_0)))
 h_max = np.tile(h_max, (1, nt))
 
