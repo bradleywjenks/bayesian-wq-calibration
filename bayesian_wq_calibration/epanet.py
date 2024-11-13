@@ -169,7 +169,8 @@ def set_source_cl(wn, cl_df):
 
 def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
 
-    wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
+    if bulk_coeff is not None:
+        wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
 
     if grouping == 'single':
         wn.options.reaction.wall_coeff = (wall_coeffs['single']/3600/24)
