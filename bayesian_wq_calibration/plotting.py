@@ -262,6 +262,9 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
                 name="reservoirs"
             )
 
+        elif val_type == 'chlorine':
+            # insert code here...
+
 
     fig = go.Figure()
 
