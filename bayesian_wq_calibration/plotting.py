@@ -263,7 +263,59 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
             )
 
         elif val_type == 'chlorine':
-            # insert code here...
+            vals_df = vals.set_index('node_id')[f'cl_{t}']
+            junction_vals = [vals_df[node] for node in net_info['junction_names']]
+            reservoir_vals = [vals_df[node] for node in net_info['reservoir_names']]
+
+            junction_nodes = net_info['junction_names']
+            reservoir_nodes = net_info['reservoir_names']
+
+            junction_x = [pos[node][0] for node in junction_nodes]
+            junction_y = [pos[node][1] for node in junction_nodes]
+            reservoir_x = [pos[node][0] for node in reservoir_nodes]
+            reservoir_y = [pos[node][1] for node in reservoir_nodes]
+
+            min_val = min(junction_vals + reservoir_vals)
+            max_val = max(junction_vals + reservoir_vals)
+
+            junction_val_trace = go.Scatter(
+                x=junction_x,
+                y=junction_y,
+                mode='markers',
+                marker=dict(
+                    size=6,
+                    color=junction_vals,
+                    colorscale='RdYlBu',
+                    cmin=min_val,
+                    cmax=max_val,
+                    colorbar=dict(
+                        title="Chlorine [mg/L]",
+                        titleside="right",
+                        len = 0.8
+                    ),
+                    symbol='circle'
+                ),
+                text=[f"{node}<br>{val:.2f} mg/L" for node, val in zip(junction_nodes, junction_vals)],
+                hoverinfo='text',
+                name="junctions"
+            )
+
+            reservoir_val_trace = go.Scatter(
+                x=reservoir_x,
+                y=reservoir_y,
+                mode='markers',
+                marker=dict(
+                    size=16,
+                    color=reservoir_vals,
+                    colorscale='RdYlBu',
+                    cmin=min_val,
+                    cmax=max_val,
+                    symbol='square'
+                ),
+                text=[f"{node}<br>{val:.2f} mg/L" for node, val in zip(reservoir_nodes, reservoir_vals)],
+                hoverinfo='text',
+                name="reservoirs"
+            )
 
 
     fig = go.Figure()
@@ -330,7 +382,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
         fig.add_trace(pressure_trace)
 
     if vals is not None:
-        if val_type == 'pressure':
+        if val_type == 'pressure' or val_type == 'chlorine':
             fig.add_trace(junction_val_trace)
             fig.add_trace(reservoir_val_trace)
         show_legend = False
