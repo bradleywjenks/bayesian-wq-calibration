@@ -58,7 +58,14 @@ def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolu
     wn = set_simulation_time(wn, cl_df)
 
     # 6. set water quality simulation:
-    wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff)
+    if grouping == 'material-velocity':
+        sim_results = epanet_simulator(wn, 'velocity', cl_df)
+        vel_sim = sim_results.velocity.T
+        mean_vel = vel_sim.mean(axis=1)
+        mean_vel = mean_vel.reset_index().rename(columns={'name': 'link_id', 0: 'mean_vel'})
+    else:
+        mean_vel = None
+    wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff, mean_vel)
 
     return wn
 
@@ -112,14 +119,14 @@ def epanet_simulator(wn, sim_type, cl_df):
 
 
 
-def set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff):
+def set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff, mean_vel):
 
     if sim_type == 'age':
         wn.options.quality.parameter = "AGE"
     elif sim_type == 'chlorine':
         wn.options.quality.parameter = "CHEMICAL"
         wn = set_source_cl(wn, cl_df)
-        wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff)
+        wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff, mean_vel)
     elif sim_type == 'trace' and trace_node is not None:
         wn.options.quality.parameter = 'TRACE'
         if trace_node in wn.reservoir_name_list:
@@ -167,7 +174,7 @@ def set_source_cl(wn, cl_df):
 
 
 
-def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
+def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff, mean_vel):
 
     if bulk_coeff is not None:
         wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
@@ -201,22 +208,27 @@ def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
                 elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']:
                     link.wall_coeff = wall_coeffs['plastic_unknown']/3600/24
 
-    elif grouping == 'roughness':
+    elif grouping == 'material-velocity' and mean_vel is not None:
+        _n_perc_vel = mean_vel['mean_vel'].quantile(0.6)
+        material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
         for name, link in wn.links():
             if isinstance(link, wntr.network.Pipe):
-                if link.roughness < 50:
-                    link.wall_coeff = (wall_coeffs['less_than_50']/3600/24)
-                elif 50 <= link.roughness < 65:
-                    link.wall_coeff = (wall_coeffs['between_50_and_65']/3600/24)
-                elif 65 <= link.roughness < 80:
-                    link.wall_coeff = (wall_coeffs['between_65_and_80']/3600/24)
-                elif 80 <= link.roughness < 100:
-                    link.wall_coeff = (wall_coeffs['between_80_and_100']/3600/24)
-                elif 100 <= link.roughness < 120:
-                    link.wall_coeff = (wall_coeffs['between_100_and_120']/3600/24)
-                elif 120 <= link.roughness:
-                    link.wall_coeff = (wall_coeffs['greater_than_120']/3600/24)
-
+                material = material_df[material_df['model_id'] == name]['material'].values
+                mean_vel_link = mean_vel[mean_vel['link_id'] == name]['mean_vel'].values
+                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and mean_vel_link < _n_perc_vel:
+                    link.wall_coeff = wall_coeffs['metallic_low_velocity']/3600/24
+                elif material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and mean_vel_link >= _n_perc_vel:
+                    link.wall_coeff = wall_coeffs['metallic_high_velocity']/3600/24
+                elif material[0] in ['AC'] and mean_vel_link < _n_perc_vel:
+                    link.wall_coeff = wall_coeffs['cement_low_velocity']/3600/24
+                elif material[0] in ['AC'] and mean_vel_link >= _n_perc_vel:
+                    link.wall_coeff = wall_coeffs['cement_high_velocity']/3600/24
+                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and mean_vel_link < _n_perc_vel:
+                    link.wall_coeff = wall_coeffs['plastic_low_velocity']/3600/24
+                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and mean_vel_link >= _n_perc_vel:
+                    link.wall_coeff = wall_coeffs['plastic_high_velocity']/3600/24
+    else:
+        print('Wall grouping not valid.')
     return wn
 
 

@@ -9,21 +9,21 @@ from deap import base, creator, tools, algorithms
 """
 Genetic algorithm fitness function
 """
-def evaluate(individual, wn, cl_df, grouping):
+def evaluate(individual, wn, cl_df, grouping, mean_vel):
     wall_coeffs = individual
     obj_function = 'mse' # 'mse', 'rmse', 'mae', 'mape'
-    fitness_value =  fitness(wn, cl_df, wall_coeffs, obj_function, grouping)
+    fitness_value =  fitness(wn, cl_df, wall_coeffs, obj_function, grouping, mean_vel)
     return (fitness_value,)
 
 
-def fitness(wn, cl_df, wall_coeffs, obj_function, grouping):
+def fitness(wn, cl_df, wall_coeffs, obj_function, grouping, mean_vel):
 
     # translate decision variables to dict for model simulation
     wall_coeffs = decision_variables_to_dict(grouping, wall_coeffs)
 
     # update wq reaction coefficients
     bulk_coeff = wn.options.reaction.bulk_coeff * 3600 * 24
-    wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff)
+    wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff, mean_vel)
 
     # simulate water quality dynamics
     sim_type = 'chlorine'
@@ -102,16 +102,16 @@ def decision_variables_to_dict(grouping, wall_coeffs):
             'cement': wall_coeffs[2],
             'plastic_unknown': wall_coeffs[3],
         }
-    elif grouping == 'roughness':
+    elif grouping == 'material-velocity':
         wall_coeffs = {
-            'less_than_50': wall_coeffs[0],
-            'between_50_and_65': wall_coeffs[1],
-            'between_65_and_80': wall_coeffs[2],
-            'between_80_and_100': wall_coeffs[3],
-            'between_100_and_120': wall_coeffs[4],
-            'greater_than_120': wall_coeffs[5],
+            'metallic_low_velocity': wall_coeffs[0],
+            'metallic_high_velocity': wall_coeffs[1],
+            'cement_low_velocity': wall_coeffs[2],
+            'cement_high_velocity': wall_coeffs[3],
+            'plastic_low_velocity': wall_coeffs[4],
+            'plastic_high_velocity': wall_coeffs[5],
         }
     else:
-        raise ValueError('Wall grouping type is not valid. Please choose from: single, material, material-diameter, or roughness.')
+        raise ValueError('Wall grouping type is not valid. Please choose from: single, material, material-diameter, or material-velocity.')
     
     return wall_coeffs
