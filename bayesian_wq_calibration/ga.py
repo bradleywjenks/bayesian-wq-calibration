@@ -1,5 +1,6 @@
 from bayesian_wq_calibration.epanet import epanet_simulator, set_reaction_parameters
 from bayesian_wq_calibration.data import sensor_model_id
+from bayesian_wq_calibration.mcmc import decision_variables_to_dict
 import pandas as pd
 import numpy as np
 import random
@@ -82,36 +83,3 @@ def fitness(wn, cl_df, wall_coeffs, obj_function, grouping, mean_vel):
         raise ValueError('Objective function is not valid. Please choose from: mse, rmse, mae, or mape.')
 
     return obj_val
-
-
-
-def decision_variables_to_dict(grouping, wall_coeffs):
-
-    if grouping == 'single':
-        wall_coeffs = {'single': wall_coeffs[0]}
-    elif grouping == 'material':
-        wall_coeffs = {
-            'metallic': wall_coeffs[0],
-            'cement': wall_coeffs[1],
-            'plastic_unknown': wall_coeffs[2],
-        }
-    elif grouping == 'material-diameter':
-        wall_coeffs = {
-            'metallic_less_than_150': wall_coeffs[0],
-            'metallic_greater_than_150': wall_coeffs[1],
-            'cement': wall_coeffs[2],
-            'plastic_unknown': wall_coeffs[3],
-        }
-    elif grouping == 'material-velocity':
-        wall_coeffs = {
-            'metallic_low_velocity': wall_coeffs[0],
-            'metallic_high_velocity': wall_coeffs[1],
-            'cement_low_velocity': wall_coeffs[2],
-            'cement_high_velocity': wall_coeffs[3],
-            'plastic_low_velocity': wall_coeffs[4],
-            'plastic_high_velocity': wall_coeffs[5],
-        }
-    else:
-        raise ValueError('Wall grouping type is not valid. Please choose from: single, material, material-diameter, or material-velocity.')
-    
-    return wall_coeffs

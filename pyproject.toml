@@ -24,6 +24,7 @@ cvxpy = "^1.5.3"
 gurobipy = "^11.0.3"
 pyomo = "^6.8.0"
 idaes-pse = "^2.6.0"
+pydoe = "^0.3.8"
 
 
 [build-system]
