@@ -25,6 +25,9 @@ gurobipy = "^11.0.3"
 pyomo = "^6.8.0"
 idaes-pse = "^2.6.0"
 pydoe = "^0.3.8"
+torch = "^2.5.1"
+gpytorch = "^1.13"
+tqdm = "^4.67.1"
 
 
 [build-system]
