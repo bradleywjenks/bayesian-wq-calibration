@@ -103,7 +103,7 @@ def epanet_simulator(wn, sim_type, cl_df):
     results = wntr.sim.EpanetSimulator(wn).run_sim()
     sim_results = SimResults()
     sim_results.datetime = datetime
-    sim_results.flow = results.link['flowrate'] * 1000 # convert to Lps
+    sim_results.flow = results.link['flowrate'] * 1000 # convert to Lps 
     sim_results.velocity = results.link['velocity']
     sim_results.pressure = results.node['pressure']
     sim_results.head = results.node['head']
