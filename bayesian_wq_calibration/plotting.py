@@ -13,7 +13,7 @@ from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE,
 """"
     Main network plotting function
 """
-def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_sensors=False, prvs=False, dbvs=False, grouping=None, vals=None, val_type='pressure', t=0, inp_file='full', mean_velocity=None):
+def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_sensors=False, prvs=False, dbvs=False, vals=None, val_type='pressure', t=0, inp_file='full', feature_df=None, feature=None, show_legend=False, fig_size=(600, 600)):
 
     # unload data
     if inp_file == 'full':
@@ -57,34 +57,50 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
         y=reservoir_y,
         mode='markers',
         marker=dict(
-            size=16,
-            color='black',
+            size=15,
+            color='blue',
             symbol='square'
         ),
         text=['inlet_2296', 'inlet_2005'],
         hoverinfo='text',
-        name='reservoir'
+        name='DMA inlet'
     )
 
-    # water quality sensors
     if wq_sensors:
         sensor_data = sensor_model_id('wq')
         sensor_names = sensor_data['model_id'].values
         sensor_x = [pos[node][0] for node in sensor_names]
         sensor_y = [pos[node][1] for node in sensor_names]
+        sensor_hydrant = [2, 5, 6]
+        sensor_kiosk = [i for i in list(range(len(sensor_names))) if i not in sensor_hydrant]
         
-        wq_trace = go.Scatter(
-            x=sensor_x,
-            y=sensor_y,
+        wq_trace_kiosk = go.Scatter(
+            x=[sensor_x[i] for i in sensor_kiosk],
+            y=[sensor_y[i] for i in sensor_kiosk],
             mode='markers',
             marker=dict(
                 size=14,
-                color='red',
+                color='black',
+                line=dict(color='white', width=2),
+                symbol='square'
+            ),
+            text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_kiosk],
+            hoverinfo='text',
+            name='water quality sensor (kiosk)'
+        )
+
+        wq_trace_hydrant = go.Scatter(
+            x=[sensor_x[i] for i in sensor_hydrant],
+            y=[sensor_y[i] for i in sensor_hydrant],
+            mode='markers',
+            marker=dict(
+                size=14,
+                color='black',
                 line=dict(color='white', width=2)
             ),
-            text=[str(sensor_data['bwfl_id'][idx]) for idx in range(len(sensor_names))],
+            text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_hydrant],
             hoverinfo='text',
-            name='water quality sensor'
+            name='water quality sensor (hydrant)'
         )
 
 
@@ -132,80 +148,6 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
             hoverinfo='text',
             name='pressure sensor'
         )
-
-
-    # plot links
-    material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
-    link_df = link_df.merge(material_df[['model_id', 'material']], left_on='link_ID', right_on='model_id', how='left')
-    link_df = link_df.drop(columns=['model_id'])
-    link_df = link_df.rename(columns={'material': 'grouping'})
-    metallic = ['CI', 'SI', 'Pb', 'DI', 'ST']
-    cement = ['AC']
-    plastic_unknown = ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']
-
-    if grouping == 'single':
-        link_df['grouping'] = link_df['link_type'].apply(lambda x: 'valve' if x == 'valve' else 'single')
-        group_colors = {
-            'single': default_colors[1],
-            'valve': 'black'
-        }
-    elif grouping == 'material':
-        link_df['grouping'] = link_df['grouping'].apply(
-            lambda x: 'metallic' if x in metallic 
-            else 'cement' if x in cement 
-            else 'plastic_unknown' if x in plastic_unknown 
-            else 'valve'
-        )
-        group_colors = {
-            'metallic': default_colors[1],
-            'cement': default_colors[0],
-            'plastic_unknown': default_colors[2],
-            'valve': 'black'
-        }
-    elif grouping == 'material-diameter':
-        link_df['grouping'] = link_df.apply(
-        lambda row: (
-            'metallic_less_than_150' if row['grouping'] in metallic and row['diameter'] * 1000 <= 150 else
-            'metallic_greater_than_150' if row['grouping'] in metallic and row['diameter'] * 1000 > 150 else
-            'cement' if row['grouping'] in cement else
-            'plastic_unknown' if row['grouping'] in plastic_unknown else
-            'valve'
-        ), axis=1
-        )
-        group_colors = {
-            'metallic_less_than_150': default_colors[1],
-            'metallic_greater_than_150': default_colors[3],
-            'cement': default_colors[0],
-            'plastic_unknown': default_colors[2],
-            'valve': 'black'
-        }
-    elif grouping == 'material-velocity':
-        try:
-            link_df = link_df.merge(mean_velocity[['link_id', 'mean_vel']], left_on='link_ID', right_on='link_id', how='left')
-            link_df = link_df.drop(columns=['link_id'])
-            _n_perc_vel = link_df['mean_vel'].quantile(0.6)
-            link_df['grouping'] = link_df.apply(
-            lambda row: (
-                'metallic_low_velocity' if row['grouping'] in metallic and row['mean_vel'] < _n_perc_vel else
-                'metallic_high_velocity' if row['grouping'] in metallic and row['mean_vel'] >= _n_perc_vel else
-                'cement_low_velocity' if row['grouping'] in cement and row['mean_vel'] < _n_perc_vel else
-                'cement_high_velocity' if row['grouping'] in cement and row['mean_vel'] >= _n_perc_vel else
-                'plastic_low_velocity' if row['grouping'] in plastic_unknown and row['mean_vel'] < _n_perc_vel else
-                'plastic_high_velocity' if row['grouping'] in plastic_unknown and row['mean_vel'] >= _n_perc_vel else
-                'valve'
-            ), axis=1
-            )
-            group_colors = {
-                'metallic_low_velocity': default_colors[0],
-                'metallic_high_velocity': default_colors[1],
-                'cement_low_velocity': default_colors[2],
-                'cement_high_velocity': default_colors[3],
-                'plastic_low_velocity': default_colors[4],
-                'plastic_high_velocity' : default_colors[5],
-                'valve': 'black'
-            }
-        except ValueError as e:
-            print(f"An error occurred: {e}")
             
 
     if vals is not None:
@@ -333,34 +275,37 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
 
     fig = go.Figure()
 
-    if grouping is not None:
-        for group, color in group_colors.items():
-            uG = []
-            uG = nx.from_pandas_edgelist(link_df[link_df['grouping'] == group], source='node_out', target='node_in')
-            edge_x = []
-            edge_y = []
-            for edge in uG.edges():
-                x0, y0 = pos[edge[0]]
-                x1, y1 = pos[edge[1]]
-                edge_x.extend([x0, x1, None])
-                edge_y.extend([y0, y1, None])
+    if feature is not None:
+        if feature in feature_df.columns:
+            unique_values = feature_df[feature].unique()
 
-            edge_trace = go.Scatter(
-                x=edge_x,
-                y=edge_y,
-                line=dict(width=1.0, color=color),
-                hoverinfo='text',
-                mode='lines',
-                name=group
-            )
-            fig.add_trace(edge_trace)
-        
-        fig.update_layout(
-            legend_title_text=f'{grouping} grouping'
-        )
-    
+            color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
+
+            for group, color in color_map.items():
+                group_df = feature_df[feature_df[feature] == group]
+                uG_group = nx.from_pandas_edgelist(group_df, source='node_out', target='node_in')
+
+                edge_x = []
+                edge_y = []
+                hover_text = []
+                for edge in uG_group.edges():
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    edge_x.extend([x0, x1, None])
+                    edge_y.extend([y0, y1, None])
+
+                edge_trace = go.Scatter(
+                    x=edge_x,
+                    y=edge_y,
+                    line=dict(width=1.0, color=color),
+                    hoverinfo='text',
+                    text=f"{feature}: {group}",
+                    mode='lines',
+                    name=f'{group}'
+                )
+                fig.add_trace(edge_trace)
+
     else:
-
         edge_x = []
         edge_y = []
         for edge in uG.edges():
@@ -368,25 +313,24 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
             x1, y1 = pos[edge[1]]
             edge_x.extend([x0, x1, None])
             edge_y.extend([y0, y1, None])
-
+    
         edge_trace = go.Scatter(
             x=edge_x,
             y=edge_y,
             line=dict(width=1.0, color='black'),
             hoverinfo='none',
             mode='lines',
-            name='link'
+            name='link',
         )
         fig.add_trace(edge_trace)
 
     if reservoir:
         fig.add_trace(reservoir_trace)
 
-    if grouping is None and vals is None:
-        fig.add_trace(node_trace)
 
     if wq_sensors:
-        fig.add_trace(wq_trace)
+        fig.add_trace(wq_trace_kiosk)
+        fig.add_trace(wq_trace_hydrant)
 
     if flow_meters:
         fig.add_trace(flow_trace)
@@ -398,9 +342,6 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
         if val_type == 'pressure' or val_type == 'chlorine':
             fig.add_trace(junction_val_trace)
             fig.add_trace(reservoir_val_trace)
-        show_legend = False
-    else:
-        show_legend = True
 
     fig.update_layout(
         showlegend=show_legend,
@@ -408,8 +349,8 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
         margin=dict(b=0, l=0, r=0, t=40),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        width=600,
-        height=600,
+        width=fig_size[0],
+        height=fig_size[1],
         paper_bgcolor='white',
         plot_bgcolor='white',
     )
