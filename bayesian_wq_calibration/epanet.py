@@ -1,4 +1,4 @@
-from bayesian_wq_calibration.constants import NETWORK_DIR, INP_FILE, IV_CLOSE, IV_OPEN, IV_OPEN_PART
+from bayesian_wq_calibration.constants import NETWORK_DIR, INP_FILE, IV_CLOSE, IV_OPEN, IV_OPEN_PART, RESULTS_DIR
 from bayesian_wq_calibration.data import sensor_model_id
 import wntr
 import pandas as pd
@@ -28,11 +28,10 @@ class SimResults:
     Main model simulation function using EPANET solver
 """
 
-def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.3}, bulk_coeff=-0.5, flush_data=None):
+def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single': 0.0}, bulk_coeff=-0.5, flush_data=None):
 
     # 1. build network model
-    wn = build_model(flow_df, pressure_df, cl_df, sim_type=sim_type, demand_resolution=demand_resolution, iv_status=iv_status, dbv_status=dbv_status, trace_node=trace_node, grouping=grouping, wall_coeffs=wall_coeffs, bulk_coeff=bulk_coeff, flush_data=flush_data)
-    wn.options.hydraulic.accuracy = 1e-3
+    wn = build_model(flow_df, pressure_df, cl_df, sim_type=sim_type, demand_resolution=demand_resolution, iv_status=iv_status, dbv_status=dbv_status, trace_node=trace_node, wall_coeffs=wall_coeffs, bulk_coeff=bulk_coeff, flush_data=flush_data)
 
     # 2. output results as structure
     sim_results = epanet_simulator(wn, sim_type, cl_df)
@@ -40,7 +39,7 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
     return sim_results
 
 
-def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single':-0.3}, bulk_coeff=-0.5, flush_data=None):
+def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single': 0.0}, bulk_coeff=-0.5, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -58,14 +57,7 @@ def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolu
     wn = set_simulation_time(wn, cl_df)
 
     # 6. set water quality simulation:
-    if grouping == 'material-velocity':
-        sim_results = epanet_simulator(wn, 'velocity', cl_df)
-        vel_sim = sim_results.velocity.T
-        mean_vel = vel_sim.mean(axis=1)
-        mean_vel = mean_vel.reset_index().rename(columns={'name': 'link_id', 0: 'mean_vel'})
-    else:
-        mean_vel = None
-    wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff, mean_vel)
+    wn = set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff)
 
     return wn
 
@@ -119,14 +111,14 @@ def epanet_simulator(wn, sim_type, cl_df):
 
 
 
-def set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff, mean_vel):
+def set_wq_parameters(wn, sim_type, cl_df, trace_node, grouping, wall_coeffs, bulk_coeff):
 
     if sim_type == 'age':
         wn.options.quality.parameter = "AGE"
     elif sim_type == 'chlorine':
         wn.options.quality.parameter = "CHEMICAL"
         wn = set_source_cl(wn, cl_df)
-        wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff, mean_vel)
+        wn = set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff)
     elif sim_type == 'trace' and trace_node is not None:
         wn.options.quality.parameter = 'TRACE'
         if trace_node in wn.reservoir_name_list:
@@ -174,61 +166,26 @@ def set_source_cl(wn, cl_df):
 
 
 
-def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff, mean_vel):
+def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
 
-    if bulk_coeff is not None:
-        wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
+    # bulk decay
+    wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
 
+    # wall decay
     if grouping == 'single':
         wn.options.reaction.wall_coeff = (wall_coeffs['single']/3600/24)
 
-    elif grouping == 'material':
-        material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
-        for name, link in wn.links():
-            if isinstance(link, wntr.network.Pipe):
-                material = material_df[material_df['model_id'] == name]['material'].values
-                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST']:
-                    link.wall_coeff = wall_coeffs['metallic']/3600/24
-                elif material[0] in ['AC']:
-                    link.wall_coeff = wall_coeffs['cement']/3600/24
-                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']:
-                    link.wall_coeff = wall_coeffs['plastic_unknown']/3600/24
-
-    elif grouping == 'material-diameter':
-        material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
-        for name, link in wn.links():
-            if isinstance(link, wntr.network.Pipe):
-                material = material_df[material_df['model_id'] == name]['material'].values
-                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 < 150:
-                    link.wall_coeff = wall_coeffs['metallic_less_than_150']/3600/24
-                elif material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and link.diameter * 1000 >= 150:
-                    link.wall_coeff = wall_coeffs['metallic_greater_than_150']/3600/24
-                elif material[0] in ['AC']:
-                    link.wall_coeff = wall_coeffs['cement']/3600/24
-                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown']:
-                    link.wall_coeff = wall_coeffs['plastic_unknown']/3600/24
-
-    elif grouping == 'material-velocity' and mean_vel is not None:
-        _n_perc_vel = mean_vel['mean_vel'].quantile(0.6)
-        material_df = pd.read_excel(NETWORK_DIR / 'gis_data.xlsx')
-        for name, link in wn.links():
-            if isinstance(link, wntr.network.Pipe):
-                material = material_df[material_df['model_id'] == name]['material'].values
-                mean_vel_link = mean_vel[mean_vel['link_id'] == name]['mean_vel'].values
-                if material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and mean_vel_link < _n_perc_vel:
-                    link.wall_coeff = wall_coeffs['metallic_low_velocity']/3600/24
-                elif material[0] in ['CI', 'SI', 'Pb', 'DI', 'ST'] and mean_vel_link >= _n_perc_vel:
-                    link.wall_coeff = wall_coeffs['metallic_high_velocity']/3600/24
-                elif material[0] in ['AC'] and mean_vel_link < _n_perc_vel:
-                    link.wall_coeff = wall_coeffs['cement_low_velocity']/3600/24
-                elif material[0] in ['AC'] and mean_vel_link >= _n_perc_vel:
-                    link.wall_coeff = wall_coeffs['cement_high_velocity']/3600/24
-                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and mean_vel_link < _n_perc_vel:
-                    link.wall_coeff = wall_coeffs['plastic_low_velocity']/3600/24
-                elif material[0] in ['HPPE', 'HPPE+FOIL', 'LDPE', 'MDPE', 'MDPE+FOIL', 'PE100+Skin', 'PVC', 'Unknown'] and mean_vel_link >= _n_perc_vel:
-                    link.wall_coeff = wall_coeffs['plastic_high_velocity']/3600/24
     else:
-        print('Wall grouping not valid.')
+        group_df = pd.read_csv(RESULTS_DIR / 'wq/pipe_groups.csv')
+
+        for name, link in wn.links():
+            if isinstance(link, wntr.network.Pipe):
+                group = group_df[group_df['model_id'] == name][grouping].values[0]
+                try:
+                    link.wall_coeff = wall_coeffs[group]/3600/24
+                except:
+                    logging.error(f"Wall grouping {grouping} not valid.")
+
     return wn
 
 

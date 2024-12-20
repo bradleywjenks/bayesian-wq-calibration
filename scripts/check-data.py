@@ -130,7 +130,7 @@ def shift_time_series_dtw(cl_df, series_1, series_2, bwfl_id, mean_age_after_1_d
 
 
 ### Check data satisfies expected directional conditions based on network hydraulics ###
-N = 21 # 20 data periods
+N = 21 # 21 data periods
 for idx in range(1, N+1):
 
     print(f"Checking time series for data period {idx}...")
