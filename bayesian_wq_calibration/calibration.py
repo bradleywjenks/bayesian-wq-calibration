@@ -27,13 +27,14 @@ def decision_variables_to_dict(grouping, params):
             'G0': params[0],
             'G1': params[1],
         }
-    elif grouping in ['material-age-diameter', 'material-age-mrt']:
+    elif grouping in ['material-age-diameter', 'material-age-velocity']:
         wall_coeffs = {
             'G0': params[0],
             'G1': params[1],
             'G2': params[2],
             'G3': params[3],
             'G4': params[4],
+            'G5': params[5],
         }
     else:
         raise ValueError('Wall grouping type is not valid.')

@@ -184,7 +184,7 @@ def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
                 try:
                     link.wall_coeff = wall_coeffs[group]/3600/24
                 except:
-                    logging.error(f"Wall grouping {grouping} not valid.")
+                    logging.error(f"Wall grouping {group} not valid for {name}.")
 
     return wn
 
