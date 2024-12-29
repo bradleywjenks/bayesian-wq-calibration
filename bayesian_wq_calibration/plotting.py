@@ -1,4 +1,5 @@
 import networkx as nx
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -172,7 +173,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
                 y=junction_y,
                 mode='markers',
                 marker=dict(
-                    size=6,
+                    size=8,
                     color=junction_vals,
                     colorscale='RdYlBu',
                     cmin=min_val,
@@ -193,7 +194,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
                 y=reservoir_y,
                 mode='markers',
                 marker=dict(
-                    size=16,
+                    size=14,
                     color=reservoir_vals,
                     colorscale='RdYlBu',
                     cmin=min_val,
@@ -221,7 +222,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
             filtered_junctions = [
                 (node, val, x, y) 
                 for node, val, x, y in zip(junction_nodes, junction_vals, junction_x, junction_y)
-                if val > 1e-3
+                if val > 1e-2
             ]
 
             junction_nodes_filtered = [node for node, val, x, y in filtered_junctions]
@@ -238,7 +239,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
                 y=junction_y_filtered,
                 mode='markers',
                 marker=dict(
-                    size=6,
+                    size=8,
                     color=junction_vals_filtered,
                     colorscale='RdYlBu',
                     cmin=min_val,
@@ -260,7 +261,7 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
                 y=reservoir_y,
                 mode='markers',
                 marker=dict(
-                    size=16,
+                    size=14,
                     color=reservoir_vals,
                     colorscale='RdYlBu',
                     cmin=min_val,
@@ -363,25 +364,41 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
 
 
 
-"""
-Animation plotting for simulation results
-"""
-def plot_network_animation(vals, datetime, val_type='chlorine', t_start=96, inp_file='full'):
-
-    # unload data
-    if inp_file == 'full':
-        wdn = load_network_data(NETWORK_DIR / INP_FILE)
-    elif inp_file == 'split':
-        wdn = load_network_data(NETWORK_DIR / SPLIT_INP_FILE)
+def animate_network(cl_sim_T, datetime_vals, timesteps=None, frame_duration=100, concentration_interval=0.1):
+    """
+    Create an animated plot of chlorine concentrations over time.
+    
+    Parameters:
+    -----------
+    cl_sim_T : pandas.DataFrame
+        Transformed chlorine simulation results with columns ['node_id', 'cl_1', 'cl_2', ...]
+    datetime_vals : array-like
+        Array of datetime values corresponding to each timestep
+    timesteps : list, optional
+        List of timesteps to animate. If None, uses hourly timesteps
+    frame_duration : int, optional
+        Duration of each frame in milliseconds
+    concentration_interval : float, optional
+        Interval size for discrete chlorine concentration bins (default: 0.1 mg/L)
+    """
+    import plotly.graph_objects as go
+    import networkx as nx
+    import numpy as np
+    
+    # Get network data
+    wdn = load_network_data(NETWORK_DIR / INP_FILE)
     link_df = wdn.link_df
     node_df = wdn.node_df
     net_info = wdn.net_info
-
-    # networkx data
+    
+    # Create network graph
     uG = nx.from_pandas_edgelist(link_df, source='node_out', target='node_in')
     pos = {row['node_ID']: (row['xcoord'], row['ycoord']) for _, row in node_df.iterrows()}
-
-    # generate edges
+    
+    # Create base figure
+    fig = go.Figure()
+    
+    # Add static pipe network
     edge_x = []
     edge_y = []
     for edge in uG.edges():
@@ -389,127 +406,223 @@ def plot_network_animation(vals, datetime, val_type='chlorine', t_start=96, inp_
         x1, y1 = pos[edge[1]]
         edge_x.extend([x0, x1, None])
         edge_y.extend([y0, y1, None])
-
+    
     edge_trace = go.Scatter(
         x=edge_x,
         y=edge_y,
         line=dict(width=1.0, color='black'),
         hoverinfo='none',
         mode='lines',
-        name='link'
+        name='link',
+        showlegend=False
     )
-
-    # generate traces for each `t`
+    fig.add_trace(edge_trace)
+    
+    # If timesteps not specified, select hourly timesteps
+    if timesteps is None:
+        all_timesteps = [int(col.split('_')[1]) for col in cl_sim_T.columns if col.startswith('cl_')]
+        timesteps = all_timesteps[::4]  # Step by 4 to get hourly intervals (15min * 4 = 1 hour)
+    
+    # Index datetime_vals according to timesteps
+    datetime_vals = datetime_vals[timesteps]
+    
+    # Get all chlorine columns for filtering
+    chlorine_cols = [col for col in cl_sim_T.columns if col.startswith('cl_')]
+    
+    # Filter junction nodes based on maximum chlorine concentration across all timesteps
+    junction_nodes = net_info['junction_names']
+    significant_junctions = []
+    for node in junction_nodes:
+        max_cl = cl_sim_T[cl_sim_T['node_id'] == node][chlorine_cols].max().max()
+        if max_cl > 1e-2:
+            significant_junctions.append(node)
+    
+    # Get global max for color scale
+    chlorine_cols = [f'cl_{t}' for t in timesteps]
+    global_max = cl_sim_T[chlorine_cols].max().max()
+    global_min = 0
+    
+    # Create discrete color bins
+    n_bins = int(np.ceil(global_max / concentration_interval))
+    tickvals = np.arange(0, n_bins + 1) * concentration_interval
+    ticktext = [f"{val:.1f}" for val in tickvals]
+    
+    # Create frames for animation
     frames = []
-    for t in range(t_start, vals.shape[1]):
-        vals_df = vals.set_index('node_id')[f'cl_{t}']
-        junction_vals = [vals_df[node] for node in net_info['junction_names']]
-        reservoir_vals = [vals_df[node] for node in net_info['reservoir_names']]
-
-        junction_nodes = net_info['junction_names']
+    for t, dt in zip(timesteps, datetime_vals):
+        # Get chlorine values for current timestep
+        vals_df = cl_sim_T.set_index('node_id')[f'cl_{t}']
+        
+        # Process junction nodes
+        junction_vals = [vals_df[node] for node in significant_junctions]
+        junction_x = [pos[node][0] for node in significant_junctions]
+        junction_y = [pos[node][1] for node in significant_junctions]
+        
+        # Process reservoir nodes
         reservoir_nodes = net_info['reservoir_names']
-
-        junction_x = [pos[node][0] for node in junction_nodes]
-        junction_y = [pos[node][1] for node in junction_nodes]
+        reservoir_vals = [vals_df[node] for node in reservoir_nodes]
         reservoir_x = [pos[node][0] for node in reservoir_nodes]
         reservoir_y = [pos[node][1] for node in reservoir_nodes]
-
-        filtered_junctions = [
-            (node, val, x, y)
-            for node, val, x, y in zip(junction_nodes, junction_vals, junction_x, junction_y)
-            if val > 1e-3
-        ]
-
-        junction_nodes_filtered = [node for node, val, x, y in filtered_junctions]
-        junction_vals_filtered = [val for node, val, x, y in filtered_junctions]
-        junction_x_filtered = [x for node, val, x, y in filtered_junctions]
-        junction_y_filtered = [y for node, val, x, y in filtered_junctions]
-
-        min_val = 0
-        max_val = max(junction_vals_filtered + reservoir_vals)
-
+        
         frame = go.Frame(
             data=[
                 edge_trace,
                 go.Scatter(
-                    x=junction_x_filtered,
-                    y=junction_y_filtered,
+                    x=junction_x,
+                    y=junction_y,
                     mode='markers',
                     marker=dict(
-                        size=6,
-                        color=junction_vals_filtered,
+                        size=8,
+                        color=junction_vals,
                         colorscale='RdYlBu',
-                        cmin=min_val,
-                        cmax=max_val,
+                        cmin=global_min,
+                        cmax=global_max,
+                        colorbar=dict(
+                            title="Chlorine [mg/L]",
+                            titleside="right",
+                            len=0.8,
+                            tickmode='array',
+                            tickvals=tickvals,
+                            ticktext=ticktext
+                        ),
                         symbol='circle'
                     ),
-                    text=[f"{node}<br>{val:.2f} mg/L" for node, val in zip(junction_nodes_filtered, junction_vals_filtered)],
+                    text=[f"{node}<br>{val:.2f} mg/L" for node, val in zip(significant_junctions, junction_vals)],
                     hoverinfo='text',
-                    name="junctions"
+                    name="junctions",
+                    showlegend=False
                 ),
                 go.Scatter(
                     x=reservoir_x,
                     y=reservoir_y,
                     mode='markers',
                     marker=dict(
-                        size=16,
+                        size=14,
                         color=reservoir_vals,
                         colorscale='RdYlBu',
-                        cmin=min_val,
-                        cmax=max_val,
+                        cmin=global_min,
+                        cmax=global_max,
                         symbol='square'
                     ),
                     text=[f"{node}<br>{val:.2f} mg/L" for node, val in zip(reservoir_nodes, reservoir_vals)],
                     hoverinfo='text',
-                    name="reservoirs"
+                    name="reservoirs",
+                    showlegend=False
                 )
             ],
-            name=f"chlorine @ {datetime[t]}"
+            name=f"frame_{t}"
         )
         frames.append(frame)
-
-    # create the initial plot
-    fig = go.Figure(
-        data=frames[0].data,
-        layout=go.Layout(
-            title="",
-            updatemenus=[
-                {
-                    "type": "buttons",
-                    "buttons": [
-                        {"label": "Play", "method": "animate", "args": [None]},
-                        {"label": "Pause", "method": "animate", "args": [[None], {"frame": {"duration": 0, "redraw": False}, "mode": "immediate"}]}
-                    ]
-                }
-            ],
-            sliders=[
-                {
-                    "steps": [
-                        {
-                            "method": "animate",
-                            "args": [[f"t={t}"], {"frame": {"duration": 500, "redraw": True}, "mode": "immediate"}],
-                            "label": f"t={t}"
-                        }
-                        for t in range(t_start, vals.shape[1])
-                    ],
-                    "active": 0
-                }
-            ]
+    
+    # Add frames to figure
+    fig.frames = frames
+    
+    # Create initial data (first frame)
+    initial_junction_vals = [cl_sim_T.set_index('node_id')[f'cl_{timesteps[0]}'][node] for node in significant_junctions]
+    initial_reservoir_vals = [cl_sim_T.set_index('node_id')[f'cl_{timesteps[0]}'][node] for node in reservoir_nodes]
+    
+    # Add initial junction and reservoir traces
+    fig.add_trace(go.Scatter(
+        x=[pos[node][0] for node in significant_junctions],
+        y=[pos[node][1] for node in significant_junctions],
+        mode='markers',
+        marker=dict(
+            size=8,
+            color=initial_junction_vals,
+            colorscale='RdYlBu',
+            cmin=global_min,
+            cmax=global_max,
+            colorbar=dict(
+                title="Chlorine [mg/L]",
+                titleside="right",
+                len=0.8,
+                tickmode='array',
+                tickvals=tickvals,
+                ticktext=ticktext
+            ),
+            symbol='circle'
         ),
-        frames=frames
-    )
-
+        text=[f"{node}<br>{val:.2f} mg/L" for node, val in zip(significant_junctions, initial_junction_vals)],
+        hoverinfo='text',
+        name="junctions",
+        showlegend=False
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=reservoir_x,
+        y=reservoir_y,
+        mode='markers',
+        marker=dict(
+            size=14,
+            color=initial_reservoir_vals,
+            colorscale='RdYlBu',
+            cmin=global_min,
+            cmax=global_max,
+            symbol='square'
+        ),
+        text=[f"{node}<br>{val:.2f} mg/L" for node, val in zip(reservoir_nodes, initial_reservoir_vals)],
+        hoverinfo='text',
+        name="reservoirs",
+        showlegend=False
+    ))
+    
+    # Add slider and play button
     fig.update_layout(
-        showlegend=True,
         hovermode='closest',
-        margin=dict(b=0, l=0, r=0, t=40),
+        margin=dict(b=0, l=0, r=0, t=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         width=600,
         height=600,
         paper_bgcolor='white',
         plot_bgcolor='white',
+        updatemenus=[
+            dict(
+                type="buttons",
+                showactive=True,
+                buttons=[
+                    dict(
+                        label="Play",
+                        method="animate",
+                        args=[None, dict(frame=dict(duration=frame_duration, redraw=True), 
+                                       fromcurrent=True, 
+                                       mode='immediate')],
+                    ),
+                    dict(
+                        label="Pause",
+                        method="animate",
+                        args=[[None], dict(frame=dict(duration=0, redraw=False),
+                                         mode='immediate',
+                                         transition=dict(duration=0))],
+                    ),
+                ],
+                x=0.1,
+                y=0,
+            )
+        ],
+        sliders=[dict(
+            steps=[
+                dict(
+                    method='animate',
+                    args=[[f'frame_{k}'], dict(mode='immediate', frame=dict(duration=frame_duration, redraw=True))],
+                    label=dt
+                )
+                for k, dt in zip(timesteps, datetime_vals)
+            ],
+            x=0.1,
+            y=0,
+            currentvalue=dict(
+                font=dict(size=12),
+                prefix="Datetime: ",
+                visible=True,
+                xanchor="right"
+            ),
+            len=1.0,
+            tickwidth=0,  # Remove tick marks
+            minorticklen=0,  # Remove minor ticks
+            ticklen=0,  # Remove major ticks
+        )]
     )
-
+    
     fig.show()
 
