@@ -7,6 +7,7 @@ import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
 from bayesian_wq_calibration.epanet import sensor_model_id
 from bayesian_wq_calibration.data import load_network_data
+from bayesian_wq_calibration.calibration import get_observable_paths
 from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE, SPLIT_INP_FILE
 
 
@@ -14,7 +15,7 @@ from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE,
 """"
     Main network plotting function
 """
-def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_sensors=False, prvs=False, dbvs=False, vals=None, val_type='pressure', t=0, inp_file='full', feature_df=None, feature=None, show_legend=False, fig_size=(600, 600)):
+def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_sensors=False, prvs=False, dbvs=False, vals=None, val_type='pressure', t=0, inp_file='full', show_legend=False, fig_size=(600, 600)):
 
     # unload data
     if inp_file == 'full':
@@ -276,58 +277,27 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
 
     fig = go.Figure()
 
-    if feature is not None:
-        if feature in feature_df.columns:
-            unique_values = feature_df[feature].unique()
+    # plot edges
+    edge_x = []
+    edge_y = []
+    for edge in uG.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
 
-            color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
-
-            for group, color in color_map.items():
-                group_df = feature_df[feature_df[feature] == group]
-                uG_group = nx.from_pandas_edgelist(group_df, source='node_out', target='node_in')
-
-                edge_x = []
-                edge_y = []
-                hover_text = []
-                for edge in uG_group.edges():
-                    x0, y0 = pos[edge[0]]
-                    x1, y1 = pos[edge[1]]
-                    edge_x.extend([x0, x1, None])
-                    edge_y.extend([y0, y1, None])
-
-                edge_trace = go.Scatter(
-                    x=edge_x,
-                    y=edge_y,
-                    line=dict(width=1.0, color=color),
-                    hoverinfo='text',
-                    text=f"{feature}: {group}",
-                    mode='lines',
-                    name=f'{group}'
-                )
-                fig.add_trace(edge_trace)
-
-    else:
-        edge_x = []
-        edge_y = []
-        for edge in uG.edges():
-            x0, y0 = pos[edge[0]]
-            x1, y1 = pos[edge[1]]
-            edge_x.extend([x0, x1, None])
-            edge_y.extend([y0, y1, None])
-    
-        edge_trace = go.Scatter(
-            x=edge_x,
-            y=edge_y,
-            line=dict(width=1.0, color='black'),
-            hoverinfo='none',
-            mode='lines',
-            name='link',
-        )
-        fig.add_trace(edge_trace)
+    edge_trace = go.Scatter(
+        x=edge_x,
+        y=edge_y,
+        line=dict(width=1.0, color='black'),
+        hoverinfo='none',
+        mode='lines',
+        name='link',
+    )
+    fig.add_trace(edge_trace)
 
     if reservoir:
         fig.add_trace(reservoir_trace)
-
 
     if wq_sensors:
         fig.add_trace(wq_trace_kiosk)
@@ -356,6 +326,158 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
         plot_bgcolor='white',
     )
 
+    fig.show()
+
+
+
+
+
+def plot_network_features(feature_df, feature, observable=False, flow_df=None, wq_sensors_used='kiosk + hydrant', fig_size=(600, 600)):
+
+    """
+    plots network with features, optionally highlighting observable paths
+    """
+    
+    # load network data
+    wdn = load_network_data(NETWORK_DIR / INP_FILE)
+    link_df = wdn.link_df
+    node_df = wdn.node_df
+    
+    # create network graph
+    uG = nx.from_pandas_edgelist(link_df, source='node_out', target='node_in')
+    pos = {row['node_ID']: (row['xcoord'], row['ycoord']) for _, row in node_df.iterrows()}
+    
+    fig = go.Figure()
+    
+    # get observable paths if requested
+    if observable:
+        if flow_df is None:
+            raise ValueError("flow_df must be provided when observable=True")
+        observable_mask = get_observable_paths(flow_df, link_df, wq_sensors_used)
+        
+        # plot non-observable paths first (thin black lines)
+        non_obs_df = feature_df[~observable_mask]
+        edge_x, edge_y = [], []
+        for _, link in non_obs_df.iterrows():
+            x0, y0 = pos[link['node_out']]
+            x1, y1 = pos[link['node_in']]
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+            
+        fig.add_trace(go.Scatter(
+            x=edge_x, y=edge_y,
+            line=dict(width=0.5, color='black'),
+            hoverinfo='none',
+            mode='lines',
+            name='non-observable links'
+        ))
+        
+        # plot observable paths with features
+        obs_df = feature_df[observable_mask]
+        unique_values = obs_df[feature].unique()
+        color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
+        
+        for group, color in color_map.items():
+            group_df = obs_df[obs_df[feature] == group]
+            edge_x, edge_y = [], []
+            hover_text = []
+            for _, link in group_df.iterrows():
+                x0, y0 = pos[link['node_out']]
+                x1, y1 = pos[link['node_in']]
+                edge_x.extend([x0, x1, None])
+                edge_y.extend([y0, y1, None])
+                hover_text.extend([f"{feature}: {group}", f"{feature}: {group}", None])
+                
+            fig.add_trace(go.Scatter(
+                x=edge_x, y=edge_y,
+                line=dict(width=1.5, color=color),
+                hoverinfo='text',
+                text=hover_text,
+                mode='lines',
+                name=f'{group}'
+            ))
+    
+    else:
+        # plot all paths with features
+        unique_values = feature_df[feature].unique()
+        color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
+        
+        for group, color in color_map.items():
+            group_df = feature_df[feature_df[feature] == group]
+            edge_x, edge_y = [], []
+            hover_text = []
+            for _, link in group_df.iterrows():
+                x0, y0 = pos[link['node_out']]
+                x1, y1 = pos[link['node_in']]
+                edge_x.extend([x0, x1, None])
+                edge_y.extend([y0, y1, None])
+                hover_text.extend([f"{feature}: {group}", f"{feature}: {group}", None])
+                
+            fig.add_trace(go.Scatter(
+                x=edge_x, y=edge_y,
+                line=dict(width=1.0, color=color),
+                hoverinfo='text',
+                text=hover_text,
+                mode='lines',
+                name=f'{group}'
+            ))
+
+    # add water quality sensors based on wq_sensors_used
+    sensor_data = sensor_model_id('wq')
+    sensor_names = sensor_data['model_id'].values
+    sensor_x = [pos[node][0] for node in sensor_names]
+    sensor_y = [pos[node][1] for node in sensor_names]
+    sensor_hydrant = [2, 5, 6]
+    sensor_kiosk = [i for i in range(len(sensor_names)) if i not in sensor_hydrant]
+    
+    if wq_sensors_used in ['kiosk only', 'kiosk + hydrant']:
+        # plot kiosk sensors
+        wq_trace_kiosk = go.Scatter(
+            x=[sensor_x[i] for i in sensor_kiosk],
+            y=[sensor_y[i] for i in sensor_kiosk],
+            mode='markers',
+            marker=dict(
+                size=14,
+                color='black',
+                line=dict(color='white', width=2),
+                symbol='square'
+            ),
+            text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_kiosk],
+            hoverinfo='text',
+            name='water quality sensor (kiosk)'
+        )
+        fig.add_trace(wq_trace_kiosk)
+
+    if wq_sensors_used in ['hydrant only', 'kiosk + hydrant']:
+        # plot hydrant sensors
+        wq_trace_hydrant = go.Scatter(
+            x=[sensor_x[i] for i in sensor_hydrant],
+            y=[sensor_y[i] for i in sensor_hydrant],
+            mode='markers',
+            marker=dict(
+                size=14,
+                color='black',
+                line=dict(color='white', width=2)
+            ),
+            text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_hydrant],
+            hoverinfo='text',
+            name='water quality sensor (hydrant)'
+        )
+        fig.add_trace(wq_trace_hydrant)
+    
+    # update layout
+    fig.update_layout(
+        showlegend=True,
+        hovermode='closest',
+        margin=dict(b=0, l=0, r=0, t=40),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        width=fig_size[0],
+        height=fig_size[1],
+        paper_bgcolor='white',
+        plot_bgcolor='white'
+    )
+    
     fig.show()
 
 

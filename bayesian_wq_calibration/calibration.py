@@ -1,5 +1,6 @@
 from bayesian_wq_calibration.epanet import epanet_simulator, set_reaction_parameters
 from bayesian_wq_calibration.data import sensor_model_id
+import networkx as nx
 import pandas as pd
 import numpy as np
 import random
@@ -12,6 +13,8 @@ from scipy.stats.qmc import Sobol, Halton
 from scipy.stats import norm, truncnorm, triang, uniform
 import random
 from pyDOE import lhs
+from itertools import combinations
+from joblib import Parallel, delayed
 
 
 
@@ -40,6 +43,60 @@ def decision_variables_to_dict(grouping, params):
         raise ValueError('Wall grouping type is not valid.')
     
     return wall_coeffs
+
+
+
+def get_observable_paths(flow_df, link_df, wq_sensors_used='kiosk + hydrant'):
+    
+    """Finds links on paths between sensors based on flow direction."""
+    
+    # get sensor nodes based on type
+    sensor_data = sensor_model_id('wq')
+    sensor_nodes = sensor_data['model_id'].values
+    sensor_hydrant = [2, 5, 6]
+    sensor_kiosk = [i for i in range(len(sensor_nodes)) if i not in sensor_hydrant]
+    
+    if wq_sensors_used == 'kiosk only':
+        sensor_indices = sensor_kiosk
+    elif wq_sensors_used == 'hydrant only':
+        sensor_indices = sensor_hydrant
+    else:  # 'kiosk + hydrant'
+        sensor_indices = list(range(len(sensor_nodes)))
+        
+    selected_sensor_nodes = sensor_nodes[sensor_indices]
+    sensor_pairs = list(combinations(selected_sensor_nodes, 2))
+    
+    # precompute link mapping
+    link_mapping = {(row['node_out'], row['node_in']): idx for idx, row in link_df.iterrows()}
+    link_mapping.update({(row['node_in'], row['node_out']): idx for idx, row in link_df.iterrows()})
+    observable = np.zeros(len(link_df))
+    
+    def process_timestep(t):
+        # create directed graph based on flow direction
+        flow_dir = np.sign(flow_df.iloc[:, t])
+        edges = [
+            (row['node_out'], row['node_in']) if flow_dir[row['link_ID']] >= 0 
+            else (row['node_in'], row['node_out'])
+            for _, row in link_df.iterrows()
+        ]
+        G = nx.DiGraph(edges)
+        timestep_observable = np.zeros(len(link_df))
+        
+        # find paths for each sensor pair
+        for s1, s2 in sensor_pairs:
+            if nx.has_path(G, s1, s2):
+                for path in nx.all_simple_paths(G, s1, s2):
+                    for i in range(len(path) - 1):
+                        edge = (path[i], path[i + 1])
+                        if edge in link_mapping:
+                            timestep_observable[link_mapping[edge]] = 1
+        return timestep_observable
+    
+    # parallelize timesteps
+    results = Parallel(n_jobs=-1)(delayed(process_timestep)(t) for t in range(flow_df.shape[1]))
+    observable = np.sum(results, axis=0) > 0
+    
+    return observable
 
 
 

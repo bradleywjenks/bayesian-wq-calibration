@@ -28,6 +28,7 @@ pydoe = "^0.3.8"
 torch = "^2.5.1"
 gpytorch = "^1.13"
 tqdm = "^4.67.1"
+joblib = "^1.4.2"
 
 
 [build-system]
