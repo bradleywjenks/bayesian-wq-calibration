@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+import plotly.express as px
 import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
 from bayesian_wq_calibration.epanet import sensor_model_id
@@ -750,57 +751,57 @@ def animate_network(cl_sim_T, datetime_vals, timesteps=None, frame_duration=100,
 
 
 
-    '''
-    GP validation plotting
-    '''
-    def plot_gp_validation(Y_true, Y_pred, Y_std, times, sensor, plot_every_nth=1):
-        """Plot GP predictions vs EPANET with uncertainty bounds."""
-        fig = go.Figure()
+'''
+GP validation plotting
+'''
+def plot_gp_validation(Y_true, Y_pred, Y_std, times, sensor, plot_every_nth=1):
+    """Plot GP predictions vs EPANET with uncertainty bounds."""
+    fig = go.Figure()
+    
+    for exp_idx in range(0, len(Y_true), plot_every_nth):
+        color = default_colors[exp_idx % len(default_colors)]
         
-        for exp_idx in range(0, len(Y_true), plot_every_nth):
-            color = default_colors[exp_idx % len(default_colors)]
-            
-            fig.add_trace(go.Scatter(
-                x=times, 
-                y=Y_true[exp_idx],
-                mode='lines', 
-                name=f'EPANET (Exp {exp_idx + 1})',
-                line=dict(color=color)
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=times, 
-                y=Y_pred[exp_idx],
-                mode='lines', 
-                name=f'GP (Exp {exp_idx + 1})',
-                line=dict(color=color, dash='dash')
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=times.tolist() + times.tolist()[::-1],
-                y=(Y_pred[exp_idx] + 2*Y_std[exp_idx]).tolist() + 
-                (Y_pred[exp_idx] - 2*Y_std[exp_idx]).tolist()[::-1],
-                fill='toself',
-                fillcolor=f'rgba{tuple(list(px.colors.hex_to_rgb(color)) + [0.2])}',
-                line=dict(color='rgba(0,0,0,0)'),
-                name=f'95% CI (Exp {exp_idx + 1})',
-                showlegend=True
-            ))
+        fig.add_trace(go.Scatter(
+            x=times, 
+            y=Y_true[exp_idx],
+            mode='lines', 
+            name=f'EPANET (Exp {exp_idx + 1})',
+            line=dict(color=color)
+        ))
         
-        fig.update_layout(
-            title=f'GP Validation - Sensor {sensor}',
-            xaxis_title='Time',
-            yaxis_title='Chlorine [mg/L]',
-            template='simple_white',
-            height=600,
-            legend=dict(
-                # yanchor="top",
-                # y=0.99,
-                # xanchor="left",
-                # x=0.01,
-                bgcolor='rgba(255, 255, 255, 0.8)'
-            )
+        fig.add_trace(go.Scatter(
+            x=times, 
+            y=Y_pred[exp_idx],
+            mode='lines', 
+            name=f'GP (Exp {exp_idx + 1})',
+            line=dict(color=color, dash='dash')
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=times.tolist() + times.tolist()[::-1],
+            y=(Y_pred[exp_idx] + 2*Y_std[exp_idx]).tolist() + 
+            (Y_pred[exp_idx] - 2*Y_std[exp_idx]).tolist()[::-1],
+            fill='toself',
+            fillcolor=f'rgba{tuple(list(px.colors.hex_to_rgb(color)) + [0.2])}',
+            line=dict(color='rgba(0,0,0,0)'),
+            name=f'95% CI (Exp {exp_idx + 1})',
+            showlegend=True
+        ))
+    
+    fig.update_layout(
+        title=f'GP Validation - Sensor {sensor}',
+        xaxis_title='Time',
+        yaxis_title='Chlorine [mg/L]',
+        template='simple_white',
+        height=600,
+        legend=dict(
+            # yanchor="top",
+            # y=0.99,
+            # xanchor="left",
+            # x=0.01,
+            bgcolor='rgba(255, 255, 255, 0.8)'
         )
-        
-        fig.show()
+    )
+    
+    fig.show()
 
