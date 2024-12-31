@@ -15,6 +15,8 @@ import random
 from pyDOE import lhs
 from itertools import combinations
 from joblib import Parallel, delayed
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, Matern, RationalQuadratic, ConstantKernel as C
 
 
 
@@ -37,7 +39,7 @@ def decision_variables_to_dict(grouping, params):
             'G2': params[2],
             'G3': params[3],
             'G4': params[4],
-            'G5': params[5],
+            # 'G5': params[5],
         }
     else:
         raise ValueError('Wall grouping type is not valid.')
@@ -270,6 +272,25 @@ def generate_samples(param_mean, param_bounds, param_group, n_samples, sampling_
         fig.show()
 
     return np.array(scaled_samples).T
+
+
+
+def setup_gp_model(n_features, kernel_type='RBF', nu=1.5, n_restarts=50, normalize_y=True):
+    """Set up GP model with specified kernel."""
+    if kernel_type == 'RBF':
+        kernel = C(1.0, (1e-3, 1e3)) * RBF([1.0] * n_features, length_scale_bounds=(1e-3, 1e3))
+    elif kernel_type == 'Matern':
+        kernel = C(1.0, (1e-3, 1e3)) * Matern([1.0] * n_features, nu=nu)
+    else:
+        raise ValueError(f"Unknown kernel type: {kernel_type}")
+        
+    return GaussianProcessRegressor(
+        kernel=kernel,
+        n_restarts_optimizer=n_restarts,
+        normalize_y=normalize_y,
+        random_state=42
+    )
+
 
 
 
