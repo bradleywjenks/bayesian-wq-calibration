@@ -370,7 +370,7 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
             line=dict(width=0.5, color='black'),
             hoverinfo='none',
             mode='lines',
-            name='non-observable links'
+            name=''
         ))
         
         # plot observable paths with features
