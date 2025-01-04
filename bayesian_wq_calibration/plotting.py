@@ -370,13 +370,15 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
             line=dict(width=0.5, color='black'),
             hoverinfo='none',
             mode='lines',
-            name=''
+            name='unobservable'
         ))
         
         # plot observable paths with features
         obs_df = feature_df[observable_mask]
-        unique_values = obs_df[feature].unique()
-        color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
+        values = obs_df[feature].unique()
+        sorted_values = sorted([x for x in values if x is not None], key=lambda x: int(x[1:])) 
+        sorted_values.append(None)
+        color_map = {value: color for value, color in zip(sorted_values, plotly.colors.qualitative.Dark24)}
         
         for group, color in color_map.items():
             group_df = obs_df[obs_df[feature] == group]
