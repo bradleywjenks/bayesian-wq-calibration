@@ -35,6 +35,8 @@ pymc = "^5.19.1"
 mkl-service = "^2.4.2"
 blis = "^1.1.0"
 arviz = "^0.20.0"
+theano = "^1.0.5"
+pytensor = "^2.26.4"
 
 
 [build-system]
