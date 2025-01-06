@@ -4,12 +4,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.express as px
+import plotly.io as pio
 import plotly.colors
 default_colors = plotly.colors.qualitative.Plotly
 from bayesian_wq_calibration.epanet import sensor_model_id
 from bayesian_wq_calibration.data import load_network_data
 from bayesian_wq_calibration.calibration import get_observable_paths
-from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE, SPLIT_INP_FILE
+from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE, SPLIT_INP_FILE, RESULTS_DIR
 
 
 
@@ -315,8 +316,9 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
             fig.add_trace(junction_val_trace)
             fig.add_trace(reservoir_val_trace)
 
+    # update layout
     fig.update_layout(
-        showlegend=show_legend,
+        showlegend=False,
         hovermode='closest',
         margin=dict(b=0, l=0, r=0, t=40),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
@@ -325,6 +327,11 @@ def plot_network(reservoir=False, wq_sensors=False, flow_meters=False, pressure_
         height=fig_size[1],
         paper_bgcolor='white',
         plot_bgcolor='white',
+        font=dict(size=16),
+        coloraxis_colorbar=dict(
+            title=dict(font=dict(size=20)),
+            tickfont=dict(size=18)
+        )
     )
 
     fig.show()
@@ -478,7 +485,12 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
         width=fig_size[0],
         height=fig_size[1],
         paper_bgcolor='white',
-        plot_bgcolor='white'
+        plot_bgcolor='white',
+        font=dict(size=16),
+        coloraxis_colorbar=dict(
+            title=dict(font=dict(size=16)),
+            tickfont=dict(size=14)
+        )
     )
     
     fig.show()
@@ -489,7 +501,7 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
 
 
 
-def animate_network(cl_sim_T, datetime_vals, timesteps=None, frame_duration=100, concentration_interval=0.1):
+def animate_network(cl_sim_T, datetime_vals, timesteps=None, frame_duration=100, concentration_interval=0.1, save_movie=False):
     """
     Create an animated plot of chlorine concentrations over time.
     
@@ -658,12 +670,16 @@ def animate_network(cl_sim_T, datetime_vals, timesteps=None, frame_duration=100,
             cmin=global_min,
             cmax=global_max,
             colorbar=dict(
-                title="Chlorine [mg/L]",
-                titleside="right",
+                title=dict(
+                    text="Chlorine [mg/L]",
+                    side="right",
+                    font=dict(size=16)
+                ),
                 len=0.8,
                 tickmode='array',
                 tickvals=tickvals,
-                ticktext=ticktext
+                ticktext=ticktext,
+                tickfont=dict(size=14)
             ),
             symbol='circle'
         ),
@@ -743,13 +759,16 @@ def animate_network(cl_sim_T, datetime_vals, timesteps=None, frame_duration=100,
                 xanchor="right"
             ),
             len=1.0,
-            tickwidth=0,  # Remove tick marks
+            tickwidth=24,  # Remove tick marks
             minorticklen=0,  # Remove minor ticks
             ticklen=0,  # Remove major ticks
         )]
     )
     
     fig.show()
+
+    if save_movie:
+        pio.write_html(fig, RESULTS_DIR / 'wq/cl_sim_animation.html')
 
 
 

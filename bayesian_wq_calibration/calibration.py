@@ -211,7 +211,7 @@ def generate_samples(param_mean, param_bounds, param_group, n_samples, sampling_
     if plot:
         cols = 2
         rows = (n_params + cols - 1) // cols
-        fig = make_subplots(rows=rows, cols=cols, subplot_titles=param_group, horizontal_spacing=0.2)
+        fig = make_subplots(rows=rows, cols=cols, subplot_titles=param_group, horizontal_spacing=0.3)
 
     for i, sample in enumerate(samples.T):
         mu = param_mean[i]
@@ -257,7 +257,7 @@ def generate_samples(param_mean, param_bounds, param_group, n_samples, sampling_
                            marker=dict(size=6, color=default_colors[0], opacity=0.8), name=f'{param_group[i]} samples'),
                 row=row + 1, col=col + 1
             )
-            fig.update_xaxes(title_text="decay coefficient [m/d]", row=row + 1, col=col + 1)
+            fig.update_xaxes(title_text="θ [m/d]", row=row + 1, col=col + 1)
             fig.update_yaxes(title_text="density", row=row + 1, col=col + 1)
 
         scaled_samples.append(param_samples)
@@ -265,10 +265,15 @@ def generate_samples(param_mean, param_bounds, param_group, n_samples, sampling_
     if plot:
         fig.update_layout(
             template="simple_white",
-            width=650,
-            height=300 * rows,
-            showlegend=False
+            width=750,
+            height=350 * rows,
+            showlegend=False,
+            font=dict(size=18),
+            title_font=dict(size=18),
         )
+        for i in fig['layout']['annotations']:
+            i['font'] = dict(size=20)
+
         fig.show()
 
     return np.array(scaled_samples).T
