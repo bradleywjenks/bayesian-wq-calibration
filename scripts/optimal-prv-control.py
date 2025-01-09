@@ -254,7 +254,7 @@ node_2751_idx = node_df[node_df['node_ID'] == 'node_2751'].index[0]
 # d_opt[node_2751_idx, :] = 1e-8
 h_min = np.tile(elevation, (1, nt))
 h_min[d_opt > 0] += p_min # demand nodes
-h_min[d_opt == 0] += 7.5 # no-demand nodes
+h_min[d_opt == 0] += 5 # no-demand nodes
 h_max = np.ones([net_info['nn'], 1]) * np.max(np.vstack((h0_opt, h_0)))
 h_max = np.tile(h_max, (1, nt))
 
@@ -571,17 +571,17 @@ for idx, prv_link in enumerate(prv_links):
         ),
         row=idx+1, col=1,
     )
-    fig.add_trace(
-        go.Scatter(
-            x=flow_df[(flow_df['bwfl_id'] == prv_ids[idx]) & (flow_df['datetime'].isin(datetime_range))]['mean'],
-            y=pressure_df[(pressure_df['bwfl_id'] == prv_ids[idx]+' (outlet)') & (pressure_df['datetime'].isin(datetime_range))]['mean'],
-            mode='markers',
-            name='data',
-            line=dict(color='black'),
-            showlegend=False
-        ),
-        row=idx+1, col=1,
-    )
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=flow_df[(flow_df['bwfl_id'] == prv_ids[idx]) & (flow_df['datetime'].isin(datetime_range))]['mean'],
+    #         y=pressure_df[(pressure_df['bwfl_id'] == prv_ids[idx]+' (outlet)') & (pressure_df['datetime'].isin(datetime_range))]['mean'],
+    #         mode='markers',
+    #         name='data',
+    #         line=dict(color='black'),
+    #         showlegend=False
+    #     ),
+    #     row=idx+1, col=1,
+    # )
     fig.add_trace(
         go.Scatter(
             x=fm_df['flow'],

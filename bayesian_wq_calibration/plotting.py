@@ -1,6 +1,7 @@
 import networkx as nx
 import numpy as np
 import pandas as pd
+from scipy.stats import norm, truncnorm, triang, uniform
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.express as px
@@ -825,4 +826,59 @@ def plot_gp_validation(Y_true, Y_pred, Y_std, times, sensor, plot_every_nth=1):
     )
     
     fig.show()
+
+
+
+def plot_prior_distribution(samples, param_idx, dist_type, param_group, param_mean, param_bounds, bulk_uncertainty=0.1, wall_uncertainty=0.5):
+
+    mu = param_mean[param_idx]
+    sigma = abs(mu * bulk_uncertainty) if param_group[param_idx] == 'B' else abs(mu * wall_uncertainty)
+    lower_bound, upper_bound = param_bounds[param_idx]
+    param_samples = samples[:, param_idx]
+
+    if param_idx == 0:
+        x = np.linspace(lower_bound, upper_bound, 500)
+        y = norm.pdf(x, loc=mu, scale=sigma)
+    else:
+        if dist_type == 'truncated normal':
+            a, b = (lower_bound - mu) / sigma, (upper_bound - mu) / sigma
+            x = np.linspace(lower_bound, upper_bound, 500)
+            y = truncnorm.pdf(x, a=a, b=b, loc=mu, scale=sigma)
+        elif dist_type == 'triangle':
+            c = (mu - lower_bound) / (upper_bound - lower_bound)
+            x = np.linspace(lower_bound, upper_bound, 500)
+            y = triang.pdf(x, c=c, loc=lower_bound, scale=upper_bound - lower_bound)
+        elif dist_type == 'uniform':
+            x = np.linspace(lower_bound, upper_bound, 500)
+            y = uniform.pdf(x, loc=lower_bound, scale=upper_bound - lower_bound)
+        else:
+            raise ValueError(f"Unsupported distribution type: {dist_type}")
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=y, mode='lines', line=dict(color='black', width=2), name='prior'))
+    fig.add_trace(go.Scatter(x=param_samples, y=[0] * len(param_samples), mode='markers', marker=dict(size=6, color=default_colors[0], opacity=0.8), name='samples'))
+    
+    fig.update_layout(
+        template="simple_white",
+        width=500, height=400,
+        showlegend=True,
+        font=dict(size=20),
+        # margin=dict(l=60, r=40, t=40, b=60),
+        title=dict(text=param_group[param_idx], x=0.5),
+        xaxis=dict(
+            title="θ [m/d]",
+            showline=True,
+            linecolor='black',
+            showgrid=False,
+            zeroline=False
+        ),
+        yaxis=dict(
+            title="Density",
+            showline=True,
+            linecolor='black',
+            showgrid=False,
+            zeroline=False
+        )
+    )
+    return fig
 

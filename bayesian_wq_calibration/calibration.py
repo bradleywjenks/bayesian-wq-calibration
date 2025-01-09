@@ -189,7 +189,7 @@ def fitness(wn, cl_df, grouping, wall_coeffs, obj_function):
 Statistical emulator/surrogate modelling functions.
 """
 
-def generate_samples(param_mean, param_bounds, param_group, n_samples, sampling_method='lhs', dist_type='truncated normal', rel_uncertainty=0.5, plot=False):
+def generate_samples(param_mean, param_bounds, param_group, n_samples, sampling_method='lhs', dist_type='truncated normal', bulk_uncertainty=0.1, wall_uncertainty=0.5):
 
     n_params = len(param_mean)
 
@@ -208,73 +208,33 @@ def generate_samples(param_mean, param_bounds, param_group, n_samples, sampling_
     
     scaled_samples = []
 
-    if plot:
-        cols = 2
-        rows = (n_params + cols - 1) // cols
-        fig = make_subplots(rows=rows, cols=cols, subplot_titles=param_group, horizontal_spacing=0.3)
-
     for i, sample in enumerate(samples.T):
+
         mu = param_mean[i]
-        if mu == 0:
-            mu = -1e-4
-        lower_bound, upper_bound = param_bounds[i]
-
-        if dist_type == 'truncated normal':
-            sigma = abs(mu * rel_uncertainty)
-            a, b = (lower_bound - mu) / sigma, (upper_bound - mu) / sigma # upper bound is 0
-            param_samples = truncnorm.ppf(sample, a=a, b=b, loc=mu, scale=sigma)
-
-            if plot:
-                x = np.linspace(lower_bound, 0, 500)
-                y = truncnorm.pdf(x, a=a, b=b, loc=mu, scale=sigma)
-
-        elif dist_type == 'triangle':
-            c = (mu - lower_bound) / (upper_bound - lower_bound) # mean is the mode
-            param_samples = triang.ppf(sample, c=c, loc=lower_bound, scale=upper_bound - lower_bound)
-
-            if plot:
-                x = np.linspace(lower_bound, upper_bound, 500)
-                y = triang.pdf(x, c=c, loc=lower_bound, scale=upper_bound - lower_bound)
-
-        elif dist_type == 'uniform':
-            param_samples = uniform.ppf(sample, loc=lower_bound, scale=upper_bound - lower_bound) # uniform between bounds
-
-            if plot:
-                x = np.linspace(lower_bound, upper_bound, 500)
-                y = uniform.pdf(x, loc=lower_bound, scale=upper_bound - lower_bound)
+        
+        if param_group[i] == 'B':
+            sigma = abs(mu * bulk_uncertainty)
+            param_samples = norm.ppf(sample, loc=mu, scale=sigma)
 
         else:
-            raise ValueError(f"Unsupported distribution type: {dist_type}")
+            sigma = abs(mu * wall_uncertainty)
+            lower_bound, upper_bound = param_bounds[i]
 
-        if plot:
-            row, col = divmod(i, cols)
-            fig.add_trace(
-                go.Scatter(x=x, y=y, mode='lines', line=dict(dash='solid', color='grey'), name=f'{param_group[i]} pdf'),
-                row=row + 1, col=col + 1
-            )
-            fig.add_trace(
-                go.Scatter(x=param_samples, y=[0] * len(param_samples), mode='markers',
-                           marker=dict(size=6, color=default_colors[0], opacity=0.8), name=f'{param_group[i]} samples'),
-                row=row + 1, col=col + 1
-            )
-            fig.update_xaxes(title_text="θ [m/d]", row=row + 1, col=col + 1)
-            fig.update_yaxes(title_text="density", row=row + 1, col=col + 1)
+            if dist_type == 'truncated normal':
+                a, b = (lower_bound - mu) / sigma, (upper_bound - mu) / sigma # upper bound is 0
+                param_samples = truncnorm.ppf(sample, a=a, b=b, loc=mu, scale=sigma)
+
+            elif dist_type == 'triangle':
+                c = (mu - lower_bound) / (upper_bound - lower_bound) # mean is the mode
+                param_samples = triang.ppf(sample, c=c, loc=lower_bound, scale=upper_bound - lower_bound)
+
+            elif dist_type == 'uniform':
+                param_samples = uniform.ppf(sample, loc=lower_bound, scale=upper_bound - lower_bound) # uniform between bounds
+
+            else:
+                raise ValueError(f"Unsupported distribution type: {dist_type}")
 
         scaled_samples.append(param_samples)
-
-    if plot:
-        fig.update_layout(
-            template="simple_white",
-            width=750,
-            height=350 * rows,
-            showlegend=False,
-            font=dict(size=18),
-            title_font=dict(size=18),
-        )
-        for i in fig['layout']['annotations']:
-            i['font'] = dict(size=20)
-
-        fig.show()
 
     return np.array(scaled_samples).T
 
