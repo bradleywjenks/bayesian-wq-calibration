@@ -57,6 +57,8 @@ def get_observable_paths(flow_df, link_df, wq_sensors_used='kiosk + hydrant'):
     sensor_nodes = sensor_data['model_id'].values
     sensor_hydrant = [2, 5, 6]
     sensor_kiosk = [i for i in range(len(sensor_nodes)) if i not in sensor_hydrant]
+    sensor_remove = [6]
+    sensor_all = [i for i in range(len(sensor_nodes)) if i not in sensor_remove]
     
     if wq_sensors_used == 'kiosk only':
         sensor_indices = sensor_kiosk
@@ -64,6 +66,7 @@ def get_observable_paths(flow_df, link_df, wq_sensors_used='kiosk + hydrant'):
         sensor_indices = sensor_hydrant
     else:  # 'kiosk + hydrant'
         sensor_indices = list(range(len(sensor_nodes)))
+        sensor_indices = sensor_all
         
     selected_sensor_nodes = sensor_nodes[sensor_indices]
     sensor_pairs = list(combinations(selected_sensor_nodes, 2))

@@ -14,6 +14,18 @@ from bayesian_wq_calibration.calibration import get_observable_paths
 from bayesian_wq_calibration.constants import NETWORK_DIR, DEVICE_DIR, INP_FILE, SPLIT_INP_FILE, RESULTS_DIR
 
 
+wong_colors = [
+    "rgb(0, 114, 178)",      # wong-blue
+    "rgb(230, 159, 0)",      # wong-orange
+    "rgb(0, 158, 115)",      # wong-green
+    "rgb(0, 0, 0)",          # wong-black
+    "rgb(86, 180, 233)",     # wong-skyblue
+    "rgb(240, 228, 66)",     # wong-yellow
+    "rgb(213, 94, 0)",       # wong-vermillion
+    "rgb(204, 121, 167)"     # wong-purple
+]
+
+
 
 """"
     Main network plotting function
@@ -362,7 +374,13 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
     if observable:
         if flow_df is None:
             raise ValueError("flow_df must be provided when observable=True")
-        observable_mask = get_observable_paths(flow_df, link_df, wq_sensors_used)
+        # observable_path = get_observable_paths(flow_df, link_df, wq_sensors_used)
+
+        # feature_df_temp = link_df.copy()
+        # feature_df_temp['observable_path'] = observable_path
+        # feature_df_temp = feature_df_temp[feature_df_temp['link_type'] != 'valve']
+        # feature_df = feature_df_temp.merge(feature_df, on='link_ID', how='left')
+        observable_mask = feature_df['observable_path'].values
         
         # plot non-observable paths first (thin black lines)
         non_obs_df = feature_df[~observable_mask]
@@ -375,18 +393,21 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
             
         fig.add_trace(go.Scatter(
             x=edge_x, y=edge_y,
-            line=dict(width=0.5, color='black'),
+            line=dict(width=0.5, color='grey'),
             hoverinfo='none',
             mode='lines',
-            name='unobservable'
+            name='unobservable',
+            showlegend=False
         ))
         
         # plot observable paths with features
         obs_df = feature_df[observable_mask]
         values = obs_df[feature].unique()
+        # values = ['G1', 'G2', 'G3']
         sorted_values = sorted([x for x in values if x is not None], key=lambda x: int(x[1:])) 
         sorted_values.append(None)
-        color_map = {value: color for value, color in zip(sorted_values, plotly.colors.qualitative.Dark24)}
+        # color_map = {value: color for value, color in zip(sorted_values, plotly.colors.qualitative.Dark24)}
+        color_map = {value: color for value, color in zip(sorted_values, wong_colors)}
         
         for group, color in color_map.items():
             group_df = obs_df[obs_df[feature] == group]
@@ -410,8 +431,10 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
     
     else:
         # plot all paths with features
-        unique_values = feature_df[feature].unique()
-        color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
+        values = feature_df[feature].unique()
+        # values = ['G1', 'G2', 'G3']
+         # color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
+        color_map = {value: color for value, color in zip(values, wong_colors)}
         
         for group, color in color_map.items():
             group_df = feature_df[feature_df[feature] == group]
@@ -426,7 +449,7 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
                 
             fig.add_trace(go.Scatter(
                 x=edge_x, y=edge_y,
-                line=dict(width=1.0, color=color),
+                line=dict(width=1.5, color=color),
                 hoverinfo='text',
                 text=hover_text,
                 mode='lines',
@@ -438,63 +461,88 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
     sensor_names = sensor_data['model_id'].values
     sensor_x = [pos[node][0] for node in sensor_names]
     sensor_y = [pos[node][1] for node in sensor_names]
-    sensor_hydrant = [2, 5, 6]
+    sensor_hydrant = [2, 5, 6]  
     sensor_kiosk = [i for i in range(len(sensor_names)) if i not in sensor_hydrant]
-    
-    if wq_sensors_used in ['kiosk only', 'kiosk + hydrant']:
-        # plot kiosk sensors
-        wq_trace_kiosk = go.Scatter(
-            x=[sensor_x[i] for i in sensor_kiosk],
-            y=[sensor_y[i] for i in sensor_kiosk],
+    sensor_remove = [6]
+    sensor_all = [i for i in range(len(sensor_names)) if i not in sensor_remove]
+
+    wq_trace_sensor = go.Scatter(
+            x=[sensor_x[i] for i in sensor_all],
+            y=[sensor_y[i] for i in sensor_all],
             mode='markers',
             marker=dict(
-                size=14,
+                size=18,
                 color='black',
                 line=dict(color='white', width=2),
-                symbol='square'
+                symbol='circle'
             ),
-            text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_kiosk],
+            text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_all],
             hoverinfo='text',
-            name='water quality sensor (kiosk)'
+            name='sensor'
         )
-        fig.add_trace(wq_trace_kiosk)
+    fig.add_trace(wq_trace_sensor)
+    
+    # if wq_sensors_used in ['kiosk only', 'kiosk + hydrant']:
+    #     # plot kiosk sensors
+    #     wq_trace_kiosk = go.Scatter(
+    #         x=[sensor_x[i] for i in sensor_kiosk],
+    #         y=[sensor_y[i] for i in sensor_kiosk],
+    #         mode='markers',
+    #         marker=dict(
+    #             size=14,
+    #             color='black',
+    #             line=dict(color='white', width=2),
+    #             symbol='square'
+    #         ),
+    #         text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_kiosk],
+    #         hoverinfo='text',
+    #         name='water quality sensor (kiosk)'
+    #     )
+    #     fig.add_trace(wq_trace_kiosk)
 
-    if wq_sensors_used in ['hydrant only', 'kiosk + hydrant']:
-        # plot hydrant sensors
-        wq_trace_hydrant = go.Scatter(
-            x=[sensor_x[i] for i in sensor_hydrant],
-            y=[sensor_y[i] for i in sensor_hydrant],
-            mode='markers',
-            marker=dict(
-                size=14,
-                color='black',
-                line=dict(color='white', width=2)
-            ),
-            text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_hydrant],
-            hoverinfo='text',
-            name='water quality sensor (hydrant)'
-        )
-        fig.add_trace(wq_trace_hydrant)
+    # if wq_sensors_used in ['hydrant only', 'kiosk + hydrant']:
+    #     # plot hydrant sensors
+    #     wq_trace_hydrant = go.Scatter(
+    #         x=[sensor_x[i] for i in sensor_hydrant],
+    #         y=[sensor_y[i] for i in sensor_hydrant],
+    #         mode='markers',
+    #         marker=dict(
+    #             size=14,
+    #             color='black',
+    #             line=dict(color='white', width=2)
+    #         ),
+    #         text=[str(sensor_data['bwfl_id'][idx]) for idx in sensor_hydrant],
+    #         hoverinfo='text',
+    #         name='water quality sensor (hydrant)'
+    #     )
+    #     fig.add_trace(wq_trace_hydrant)
     
     # update layout
     fig.update_layout(
         showlegend=True,
         hovermode='closest',
-        margin=dict(b=0, l=0, r=0, t=40),
+        margin=dict(b=0, l=0, r=0, t=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         width=fig_size[0],
         height=fig_size[1],
         paper_bgcolor='white',
         plot_bgcolor='white',
-        font=dict(size=16),
+        font=dict(size=22),
         coloraxis_colorbar=dict(
-            title=dict(font=dict(size=16)),
-            tickfont=dict(size=14)
+            title=dict(font=dict(size=22)),
+            tickfont=dict(size=20)
+        ),
+        legend=dict(
+            x=0.9, 
+            xanchor="left", 
+            y=1, 
+            yanchor="auto"  
         )
     )
-    
+        
     fig.show()
+    return fig
 
 
 
