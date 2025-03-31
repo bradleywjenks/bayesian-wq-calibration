@@ -456,9 +456,10 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
                 name=f'{group}'
             ))
 
-    # add water quality sensors based on wq_sensors_used
+    # Add water quality sensors based on wq_sensors_used
     sensor_data = sensor_model_id('wq')
     sensor_names = sensor_data['model_id'].values
+    sensor_labels = sensor_data['bwfl_id'].values
     sensor_x = [pos[node][0] for node in sensor_names]
     sensor_y = [pos[node][1] for node in sensor_names]
     sensor_hydrant = [2, 5, 6]  
@@ -466,6 +467,7 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
     sensor_remove = [6]
     sensor_all = [i for i in range(len(sensor_names)) if i not in sensor_remove]
 
+    # Add sensor markers
     wq_trace_sensor = go.Scatter(
             x=[sensor_x[i] for i in sensor_all],
             y=[sensor_y[i] for i in sensor_all],
@@ -481,6 +483,25 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
             name='sensor'
         )
     fig.add_trace(wq_trace_sensor)
+
+    # Add annotations for sensor labels
+    for idx in sensor_all:
+        fig.add_annotation(
+            x=sensor_x[idx],
+            y=sensor_y[idx],
+            text=sensor_labels[idx],  # Using the index value as the label
+            showarrow=False,
+            font=dict(
+                size=18,
+                color="black",
+                # weight="bold"
+            ),
+            bgcolor="rgba(0,0,0,0)",  # Transparent background
+            bordercolor="rgba(0,0,0,0)",
+            xanchor="center",
+            yanchor="middle",
+            yshift=20
+        )
     
     # if wq_sensors_used in ['kiosk only', 'kiosk + hydrant']:
     #     # plot kiosk sensors
