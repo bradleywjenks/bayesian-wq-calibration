@@ -432,7 +432,7 @@ def plot_network_features(feature_df, feature, observable=False, flow_df=None, w
     else:
         # plot all paths with features
         values = feature_df[feature].unique()
-        # values = ['G1', 'G2', 'G3']
+        values = ['G1', 'G2', 'G3']
          # color_map = {value: color for value, color in zip(unique_values, plotly.colors.qualitative.Dark24)}
         color_map = {value: color for value, color in zip(values, wong_colors)}
         

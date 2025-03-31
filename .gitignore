@@ -175,3 +175,5 @@ data/timeseries/imputed/*
 # notebooks
 !notebooks/01-data-period-features.ipynb
 !notebooks/02-GA-model-calibration.ipynb
+
+*DS_Store
