@@ -1,6 +1,6 @@
 from bayesian_wq_calibration.constants import NETWORK_DIR, INP_FILE, IV_CLOSE, IV_OPEN, IV_OPEN_PART, RESULTS_DIR
 from bayesian_wq_calibration.data import sensor_model_id
-import wntr
+import os
 import pandas as pd
 import json
 import numpy as np
@@ -10,6 +10,9 @@ import warnings
 warnings.filterwarnings("ignore")
 
 logging.basicConfig(level=logging.WARNING)
+
+os.environ['DYLD_LIBRARY_PATH'] = "/Users/bradwjenks/Code/tools/WNTR/wntr/epanet/libepanet/darwin-arm"
+import wntr
 
 class SimResults:
     def __init__(self):

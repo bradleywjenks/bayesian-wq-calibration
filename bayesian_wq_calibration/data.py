@@ -1,4 +1,4 @@
-import wntr
+import os
 import pandas as pd
 import numpy as np
 import scipy.sparse as sp
@@ -6,6 +6,8 @@ from pydantic import BaseModel
 from typing import Any
 from bayesian_wq_calibration.constants import NETWORK_DIR, TIMESERIES_DIR, DEVICE_DIR
 
+os.environ['DYLD_LIBRARY_PATH'] = "/Users/bradwjenks/Code/tools/WNTR/wntr/epanet/libepanet/darwin-arm"
+import wntr
 
 class WDN(BaseModel):
     A12: Any
