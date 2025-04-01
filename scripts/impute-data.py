@@ -24,9 +24,9 @@ pressure_df = pd.DataFrame()
 flow_df = pd.DataFrame()
 wq_df = pd.DataFrame()
 
-with zip.ZipFile(TIMESERIES_DIR / 'raw/field_lab-data-2021-2024.zip', 'r') as z:
+with zip.ZipFile(TIMESERIES_DIR / 'raw/field_lab-data-2021-2025.zip', 'r') as z:
    for filename in z.namelist():
-      if filename.endswith('.csv'):
+      if filename.endswith('.csv') and not filename.startswith('__MACOSX'):
          with z.open(filename) as f:
             data = pd.read_csv(f, sep=';', low_memory=False)
             data_type = filename.split('/')[-1].split('.')[0].split('_')[1]
@@ -76,6 +76,8 @@ flow_df = fill_missing_rows(
     max_datetime=max_datetime,
 )
 
+# replace BW5 with BW5_1 and BW2 with BW2_1 in wq_df
+wq_df['bwfl_id'] = wq_df['bwfl_id'].replace({'BW5': 'BW5_1', 'BW2': 'BW2_1'})
 wq_df = fill_missing_rows(
     wq_df, 
     min_datetime=min_datetime,
@@ -211,7 +213,7 @@ fig.show()
 # fig.show()
 
 # save imputed date to zip folder
-with zip.ZipFile(TIMESERIES_DIR / 'imputed/field_lab-data-2021-2024.zip', 'w') as z:
+with zip.ZipFile(TIMESERIES_DIR / 'imputed/field_lab-data-2021-2025.zip', 'w') as z:
     with z.open('flow_data.csv', 'w') as f:
         flow_df.to_csv(f, index=False)
     with z.open('pressure_data.csv', 'w') as f:

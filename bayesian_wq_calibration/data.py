@@ -241,7 +241,7 @@ def get_sensor_stats(data_type, sensor_names, N=19):
 
 
 
-def count_pressure_events(threshold=10, N=20):
+def count_pressure_events(threshold=10, N=22):
 
     count = []
     sensor_data = sensor_model_id('pressure')
@@ -265,7 +265,7 @@ def count_pressure_events(threshold=10, N=20):
 
 
 
-def count_turbidity_events(threshold=2, N=20):
+def count_turbidity_events(threshold=2, N=22):
 
     sensor_data = sensor_model_id('wq')
     bwfl_ids = sensor_data['bwfl_id'].unique()
