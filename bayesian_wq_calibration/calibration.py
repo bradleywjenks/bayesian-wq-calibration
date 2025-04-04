@@ -23,30 +23,6 @@ from sklearn.gaussian_process.kernels import RBF, Matern, RationalQuadratic, Con
 """
 Misc. functions
 """
-def decision_variables_to_dict(grouping, params):
-
-    if grouping == 'single':
-        wall_coeffs = {'G0': params[0]}
-    elif grouping == 'material-only':
-        wall_coeffs = {
-            'G0': params[0],
-            'G1': params[1],
-        }
-    elif grouping in ['material-age-diameter', 'material-age-velocity']:
-        wall_coeffs = {
-            'G0': params[0],
-            'G1': params[1],
-            'G2': params[2],
-            'G3': params[3],
-            'G4': params[4],
-            # 'G5': params[5],
-        }
-    else:
-        raise ValueError('Wall grouping type is not valid.')
-    
-    return wall_coeffs
-
-
 
 def get_observable_paths(flow_df, link_df, wq_sensors_used='kiosk + hydrant'):
     

@@ -42,7 +42,7 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
     return sim_results
 
 
-def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'single': 0.0}, bulk_coeff=-0.5, flush_data=None):
+def build_model(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_resolution='wwmd', iv_status='closed', dbv_status='active', trace_node=None, grouping='single', wall_coeffs={'G1': 0.0}, bulk_coeff=-0.5, flush_data=None):
 
     # 1. load network
     wn = wntr.network.WaterNetworkModel(NETWORK_DIR / INP_FILE)
@@ -90,11 +90,11 @@ def set_simulation_time(wn, cl_df):
 
 
 
-def epanet_simulator(wn, sim_type, cl_df):
+def epanet_simulator(wn, sim_type, datetime):
 
     # print('Simulating!')
 
-    datetime = pd.to_datetime(cl_df['datetime'].unique())
+    datetime = pd.to_datetime(datetime)
     results = wntr.sim.EpanetSimulator(wn).run_sim()
     sim_results = SimResults()
     sim_results.datetime = datetime
@@ -175,9 +175,11 @@ def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
     wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
 
     # wall decay
-    if grouping == 'single':
-        wn.options.reaction.wall_coeff = (wall_coeffs['single']/3600/24)
+    if not isinstance(wall_coeffs, dict):
+        wall_coeffs = decision_variables_to_dict(grouping, wall_coeffs)
 
+    if grouping == 'single':
+        wn.options.reaction.wall_coeff = (wall_coeffs['G1']/3600/24)
     else:
         group_df = pd.read_csv(RESULTS_DIR / 'wq/pipe_groups.csv')
 
@@ -481,6 +483,36 @@ def get_prv_settings(wn, pressure_df, prv_links, prv_dir):
             prv_settings[idx] = [np.nan] * len(pressure_df['datetime'].unique())
 
     return prv_settings
+
+
+
+def decision_variables_to_dict(grouping, params):
+
+    if grouping == 'single':
+        wall_coeffs = {'G1': params[0]}
+    elif grouping == 'material-only':
+        wall_coeffs = {
+            'G1': params[0],
+            'G2': params[1],
+        }
+    elif grouping == 'material-age':
+        wall_coeffs = {
+            'G1': params[0],
+            'G2': params[1],
+            'G3': params[2],
+        }
+    elif grouping == 'material-age-velocity':
+        wall_coeffs = {
+            'G1': params[0],
+            'G2': params[1],
+            'G3': params[2],
+            'G4': params[3],
+            'G5': params[4],
+        }
+    else:
+        raise ValueError('Wall grouping type is not valid.')
+    
+    return wall_coeffs
 
 
 

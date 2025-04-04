@@ -9,7 +9,7 @@ This script calibrates the Field Lab's water quality model using ensemble Kalman
     7. enter text here...
 """
 
-
+using Revise
 using EnsembleKalmanProcesses
 using EnsembleKalmanProcesses.ParameterDistributions
 using DataFrames
@@ -20,6 +20,7 @@ using Distributions
 using Statistics
 using Colors
 using Random
+using Plots
 using Plots.PlotMeasures
 using PyCall
 
@@ -64,7 +65,7 @@ plot_bwfl_data(df, ylabel)
 unique_datetime = DateTime.(unique(df.datetime))
 n_total = length(unique_datetime) # 15-minute time steps
 range = 1:n_total
-datetime = unique_datetime[total_range]
+datetime = unique_datetime[range]
 
 n_train = 3 * 24 * 4  # 2 train days (day 1 discarded in wq simulation)
 range_train = 1:n_train
@@ -87,15 +88,37 @@ temp_train = mean(skipmissing(subset(wq_df, :data_type => ByRow(==("temperature"
 θ_b_train = data.bulk_temp_adjust(θ_b, temp_train)
 
 wn_train = epanet.build_model(
-    df_2_pd(filter(row -> row.datetime ∈ train_datetime, flow_df)), 
-    df_2_pd(filter(row -> row.datetime ∈ train_datetime, pressure_df)), 
-    df_2_pd(filter(row -> row.datetime ∈ train_datetime, cl_df)),
+    df_2_pd(filter(row -> row.datetime ∈ datetime_train, flow_df)), 
+    df_2_pd(filter(row -> row.datetime ∈ datetime_train, pressure_df)), 
+    df_2_pd(filter(row -> row.datetime ∈ datetime_train, cl_df)),
     sim_type="chlorine",
     demand_resolution=demand_resolution,
     bulk_coeff=θ_b_train
 )
 
 
+
+### 4. set θ_w groupings and bounds ###
+grouping = "single" # "single", "material", "material-age", "material-age-velocity"
+
+θ_w_lb, θ_w_ub = if grouping == "single"
+    ([-1.0], [-0.01])  # G1: all pipes
+elseif grouping == "material"
+    ([-1.0, -0.15], [-0.01, -0.01])  # G1: metallic, G2: cement + plastic
+elseif grouping == "material-age"
+    ([-1.0, -1.0, -0.15], [-0.01, -0.01, -0.01])  # G1: metallic + > mean pipe age, G2: metallic + ≤ mean pipe age, G3: cement + plastic
+elseif grouping == "material-age-velocity"
+    ([-1.0, -1.0, -1.0, -1.0, -0.15], [-0.01, -0.01, -0.01, -0.01, -0.01])  # G1: metallic + > mean pipe age + ≤ mean velocity, G2: metallic + > mean pipe age + > mean velocity, G3: metallic + ≤ mean pipe age + ≤ mean velocity, G4: metallic + ≤ mean pipe age + > mean velocity, G5: cement + plastic
+else
+    error("Unsupported grouping: $grouping")
+end
+
+
+
+### 5. create and test forward model F(θ) ###
+θ_w = (θ_w_lb + θ_w_ub) ./ 2
+θ = [θ_b; θ_w]
+y = forward_model(wn_train, θ, grouping, datetime_train; sim_type="chlorine")
 
 
 
@@ -130,4 +153,16 @@ function plot_bwfl_data(df, ylabel)
     end
 
     return plt
+end
+
+
+function forward_model(wn, θ, grouping, datetime; sim_type="flow")
+
+    θ_b = θ[1]
+    θ_w = θ[2:end]
+    wn = epanet.set_reaction_parameters(wn, grouping, θ_w, θ_b)
+    y = epanet.epanet_simulator(wn, sim_type, datetime)
+    # println("Running simulation with θ_b = $θ_b and θ_w = $θ_w...")
+    return y
+
 end
