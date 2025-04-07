@@ -490,7 +490,7 @@ def decision_variables_to_dict(grouping, params):
 
     if grouping == 'single':
         wall_coeffs = {'G1': params[0]}
-    elif grouping == 'material-only':
+    elif grouping == 'material':
         wall_coeffs = {
             'G1': params[0],
             'G2': params[1],

@@ -1,10 +1,10 @@
 """
 This script calibrates the Field Lab's water quality model using ensemble Kalman inversion (Stage 1 of the CES method). Specifically, bulk and wall decay coefficients are calibrated based on a selected grouping. The following steps are performed:
-    1. load operational data
-    2. split train/test datasets
-    3. build epanet model
-    4. set pipe grouping and define θ priors
-    5. create forward model function, F <-- wn, θ, grouping
+    1. load operational data (DONE)
+    2. split train/test datasets (DONE)
+    3. build epanet model (DONE)
+    4. set pipe grouping and define θ priors (DONE)
+    5. create forward model function, F <-- wn, θ, grouping (DONE)
     6. create EKI calibration function: EKI <-- F, θ_prior
     7. enter text here...
 """
@@ -57,7 +57,7 @@ cl_df = wq_df[wq_df.data_type .== "chlorine", :]
 
 ylabel = "Chlorine [mg/L]" # "Flow [L/s]", "Pressure [m]", "Chlorine [mg/L]"
 df = cl_df # cl_df, flow_df, pressure_df
-plot_bwfl_data(df, ylabel)
+plot_bwfl_data(df, ylabel, ymax=0.7)
 
 
 
@@ -76,7 +76,7 @@ datetime_test = unique_datetime[range_test]
 
 ylabel = "Chlorine [mg/L]" # "Flow [L/s]", "Pressure [m]", "Chlorine [mg/L]"
 df_filter = filter(row -> row.datetime ∈ datetime_train, cl_df)
-plot_bwfl_data(df_filter, ylabel)
+plot_bwfl_data(df_filter, ylabel, ymax=0.7)
 
 
 
@@ -99,16 +99,16 @@ wn_train = epanet.build_model(
 
 
 ### 4. set θ_w groupings and bounds ###
-grouping = "single" # "single", "material", "material-age", "material-age-velocity"
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
 
 θ_w_lb, θ_w_ub = if grouping == "single"
-    ([-1.0], [-0.01])  # G1: all pipes
+    ([-1.0], [0.0])  # G1: all pipes
 elseif grouping == "material"
-    ([-1.0, -0.15], [-0.01, -0.01])  # G1: metallic, G2: cement + plastic
+    ([-1.0, -0.15], [0.0, 0.0])  # G1: metallic, G2: cement + plastic
 elseif grouping == "material-age"
-    ([-1.0, -1.0, -0.15], [-0.01, -0.01, -0.01])  # G1: metallic + > mean pipe age, G2: metallic + ≤ mean pipe age, G3: cement + plastic
+    ([-1.0, -1.0, -0.15], [0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age, G2: metallic + ≤ mean pipe age, G3: cement + plastic
 elseif grouping == "material-age-velocity"
-    ([-1.0, -1.0, -1.0, -1.0, -0.15], [-0.01, -0.01, -0.01, -0.01, -0.01])  # G1: metallic + > mean pipe age + ≤ mean velocity, G2: metallic + > mean pipe age + > mean velocity, G3: metallic + ≤ mean pipe age + ≤ mean velocity, G4: metallic + ≤ mean pipe age + > mean velocity, G5: cement + plastic
+    ([-1.0, -1.0, -1.0, -1.0, -0.15], [0.0, 0.0, 0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age + ≤ mean velocity, G2: metallic + > mean pipe age + > mean velocity, G3: metallic + ≤ mean pipe age + ≤ mean velocity, G4: metallic + ≤ mean pipe age + > mean velocity, G5: cement + plastic
 else
     error("Unsupported grouping: $grouping")
 end
@@ -117,9 +117,9 @@ end
 
 ### 5. create and test forward model F(θ) ###
 θ_w = (θ_w_lb + θ_w_ub) ./ 2
-θ = [θ_b; θ_w]
-y = forward_model(wn_train, θ, grouping, datetime_train; sim_type="chlorine")
-
+θ = [θ_b_train; θ_w]
+exclude_sensors = ["BW1", "BW4", "BW7"]
+y = forward_model(wn_train, θ, grouping, datetime_train, exclude_sensors; sim_type="chlorine")
 
 
 
@@ -140,11 +140,11 @@ end
 
 
 
-function plot_bwfl_data(df, ylabel)
+function plot_bwfl_data(df, ylabel; ymax=nothing)
 
     bwfl_ids = unique(df.bwfl_id)
 
-    plt = plot(xlabel="Datetime", ylabel=ylabel, legend=:outertopright, foreground_color_legend=nothing, size=(1000, 450), left_margin=8mm, bottom_margin=8mm, top_margin=8mm)
+    plt = plot(xlabel="Datetime", ylabel=ylabel, legend=:outertopright, foreground_color_legend=nothing, ylims=(0, ymax), size=(1000, 450), left_margin=8mm, bottom_margin=8mm, top_margin=8mm, xtickfont=14, ytickfont=14, xguidefont=16, yguidefont=16, legendfont=14)
 
     for (i, name) in enumerate(bwfl_ids)
         color = wong_colors[mod1(i, length(wong_colors))]
@@ -156,13 +156,119 @@ function plot_bwfl_data(df, ylabel)
 end
 
 
-function forward_model(wn, θ, grouping, datetime; sim_type="flow")
+function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="flow", burn_in=96)
 
     θ_b = θ[1]
     θ_w = θ[2:end]
     wn = epanet.set_reaction_parameters(wn, grouping, θ_w, θ_b)
     y = epanet.epanet_simulator(wn, sim_type, datetime)
-    # println("Running simulation with θ_b = $θ_b and θ_w = $θ_w...")
+    
+    if sim_type == "chlorine"
+        bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
+        model_ids = Vector{String}(data.sensor_model_id("wq")["model_id"].values)
+        sensor_model_id = [model_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+        sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+        y_df = pd_2_df(y.chlorine)
+        y_df = y_df[:, Symbol.(sensor_model_id)]
+        y_df = y_df[burn_in + 1:end, :]
+        for (old_name, new_name) in zip(Symbol.(sensor_model_id), Symbol.(sensor_bwfl_id))
+            rename!(y_df, old_name => new_name)
+        end
+        sensor_cols = Symbol.(sensor_bwfl_id)
+        y = Float64[]
+        for col in sensor_cols
+            append!(y, y_df[:, col])
+        end
+    else
+        @error("Unsupported simulation type: $sim_type")
+    end
+
     return y
 
 end
+
+
+function eki_calibration(θ_b, θ_w_lb, θ_w_ub, cl_df, wn, datetime, exclude_sensors, grouping; burnin=24*4, noise=0.1, θ_b_error=0.1, wall_prior="uniform")
+
+    rng_seed = 41
+    rng = Random.seed!(Random.GLOBAL_RNG, rng_seed)
+
+    θ_w_1 = (θ_w_lb + θ_w_ub) ./ 2
+    θ_1 = [θ_b_train; θ_w_1]
+    y_1 = forward_model(wn_train, θ_1, grouping, datetime_train, exclude_sensors; sim_type="chlorine")
+
+    θ_n = length(θ_1)
+    y_n = ncol(y_1) * (nrow(y_1) - burn_in)
+
+
+end
+
+rng_seed = 41
+rng = Random.seed!(Random.GLOBAL_RNG, rng_seed)
+burn_in = 96 # burn-in period for wq stability
+
+# parameter data
+θ_b_error=0.1
+wall_prior = "uniform"
+θ_w_1 = (θ_w_lb + θ_w_ub) ./ 2
+θ_1 = [θ_b_train; θ_w_1]
+y_1 = forward_model(wn_train, θ_1, grouping, datetime_train, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
+
+θ_n = length(θ_1)
+y_n = length(y_1)
+
+# sensor data + noise
+bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
+sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+cl_df_filter = subset(cl_df, :bwfl_id => ByRow(in(sensor_bwfl_id)), :datetime => ByRow(in(datetime_train[burn_in + 1:end])))
+vals_df = unstack(cl_df_filter, :datetime, :bwfl_id, :mean)
+sensor_cols = Symbol.(sensor_bwfl_id)
+ȳ = Float64[]
+for col in sensor_cols
+    append!(ȳ, vals_df[:, col])
+end
+missing_count = sum(ismissing.(ȳ))
+missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
+
+noise = 0.1
+Γ = noise^2 * I(y_n)
+Σ = MvNormal(zeros(y_n), Γ)
+
+# prior distributions
+prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * θ_b_error), -Inf, 0.0)
+for i = 1:length(θ_w_lb)
+    if wall_prior == "uniform"
+        prior_wall = ParameterDistribution(Parameterized(Uniform(θ_w_lb[i], θ_w_ub[i])), bounded(θ_w_lb[i], θ_w_ub[i]), "θ_w_$i")
+        prior = combine_distributions([prior, prior_wall])
+    else
+        @error "$wall_prior distribution not available."
+    end
+end
+
+plot(prior)
+
+# set up EKI
+n_ensemble = 50
+n_iter = 20
+ensemble_0 = EKP.construct_initial_ensemble(rng, prior, n_ensemble)
+
+# create EKI process
+process = EKP.EnsembleKalmanProcess(
+    ensemble_0,
+    ȳ,
+    Γ,
+    Inversion(); rng=rng,
+)
+
+# run EKI iterations
+# (check 'on_terminate' argument for stopping criteria)
+for i in 1:n_iter
+    println("Iteration $i/$n_iter")
+    θ_i = get_ϕ_final(prior, process)
+    g_ens = hcat([forward_model(wn_train, θ_i[:, j], grouping, datetime_train, exclude_sensors; sim_type="chlorine", burn_in=burn_in) for j in 1:n_ensemble]...)
+    EKP.update_ensemble!(process, g_ens)
+end
+
+# get final ensemble
+ensemble_n = get_ϕ_final(prior, process)
+
