@@ -236,7 +236,7 @@ noise = 0.1
 
 # prior distributions
 prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * θ_b_error), -Inf, 0.0)
-for i = 1:length(θ_w_lb)
+for i = 1:θ_n-1
     if wall_prior == "uniform"
         prior_wall = ParameterDistribution(Parameterized(Uniform(θ_w_lb[i], θ_w_ub[i])), bounded(θ_w_lb[i], θ_w_ub[i]), "θ_w_$i")
         prior = combine_distributions([prior, prior_wall])
