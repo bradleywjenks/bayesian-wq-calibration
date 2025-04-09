@@ -5,8 +5,8 @@ This script calibrates the Field Lab's water quality model using ensemble Kalman
     3. build epanet model (DONE)
     4. set pipe grouping and define θ priors (DONE)
     5. create forward model function, F <-- wn, θ, grouping (DONE)
-    6. create EKI calibration function: EKI <-- F, θ_prior
-    7. enter text here...
+    6. create EKI calibration function: EKI <-- F, θ_prior (DONE)
+    7. results plotting
 """
 
 using Revise
@@ -123,6 +123,29 @@ y = forward_model(wn_train, θ, grouping, datetime_train, exclude_sensors; sim_t
 
 
 
+### 6. eki calibration ###
+θ_init, θ_final = eki_calibration(θ_b_train, θ_w_lb, θ_w_ub, cl_df, wn_train, datetime_train, exclude_sensors, grouping;burn_in=24*4, δ_s=0.15, δ_b=0.025)
+
+
+
+### 7. results plotting ###
+
+# θ_b
+histogram(θ_init[1, :], label="Initial ensemble", color=wong_colors[1])
+histogram!(θ_final[1, :], label="Final ensemble", color=wong_colors[2])
+
+# θ_w ...
+histogram(θ_init[2, :], label="Initial ensemble", color=wong_colors[1])
+histogram(θ_final[2, :], label="Final ensemble", color=wong_colors[3])
+
+
+
+
+
+
+
+
+
 ########## FUNCTIONS ##########
 
 function pd_2_df(df_pd)
@@ -188,87 +211,81 @@ function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="fl
 end
 
 
-function eki_calibration(θ_b, θ_w_lb, θ_w_ub, cl_df, wn, datetime, exclude_sensors, grouping; burnin=24*4, noise=0.1, θ_b_error=0.1, wall_prior="uniform")
+function eki_calibration(θ_b, θ_w_lb, θ_w_ub, cl_df, wn, datetime, exclude_sensors, grouping; burn_in=24*4, δ_s=0.1, δ_b=0.025, wall_prior="uniform", n_ensemble=100, n_iter=25)
 
-    rng_seed = 41
-    rng = Random.seed!(Random.GLOBAL_RNG, rng_seed)
+    rng = Random.seed!(Random.GLOBAL_RNG)
 
+    # parameter data
     θ_w_1 = (θ_w_lb + θ_w_ub) ./ 2
-    θ_1 = [θ_b_train; θ_w_1]
-    y_1 = forward_model(wn_train, θ_1, grouping, datetime_train, exclude_sensors; sim_type="chlorine")
-
+    θ_1 = [θ_b; θ_w_1]
+    y_1 = forward_model(wn_train, θ_1, grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
+    
     θ_n = length(θ_1)
-    y_n = ncol(y_1) * (nrow(y_1) - burn_in)
-
-
-end
-
-rng_seed = 41
-rng = Random.seed!(Random.GLOBAL_RNG, rng_seed)
-burn_in = 96 # burn-in period for wq stability
-
-# parameter data
-θ_b_error=0.1
-wall_prior = "uniform"
-θ_w_1 = (θ_w_lb + θ_w_ub) ./ 2
-θ_1 = [θ_b_train; θ_w_1]
-y_1 = forward_model(wn_train, θ_1, grouping, datetime_train, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
-
-θ_n = length(θ_1)
-y_n = length(y_1)
-
-# sensor data + noise
-bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
-sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
-cl_df_filter = subset(cl_df, :bwfl_id => ByRow(in(sensor_bwfl_id)), :datetime => ByRow(in(datetime_train[burn_in + 1:end])))
-vals_df = unstack(cl_df_filter, :datetime, :bwfl_id, :mean)
-sensor_cols = Symbol.(sensor_bwfl_id)
-ȳ = Float64[]
-for col in sensor_cols
-    append!(ȳ, vals_df[:, col])
-end
-missing_count = sum(ismissing.(ȳ))
-missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
-
-noise = 0.1
-Γ = noise^2 * I(y_n)
-Σ = MvNormal(zeros(y_n), Γ)
-
-# prior distributions
-prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * θ_b_error), -Inf, 0.0)
-for i = 1:θ_n-1
-    if wall_prior == "uniform"
-        prior_wall = ParameterDistribution(Parameterized(Uniform(θ_w_lb[i], θ_w_ub[i])), bounded(θ_w_lb[i], θ_w_ub[i]), "θ_w_$i")
-        prior = combine_distributions([prior, prior_wall])
-    else
-        @error "$wall_prior distribution not available."
+    y_n = length(y_1)
+    
+    # sensor data + noise
+    bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
+    sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+    cl_df_filter = subset(cl_df, :bwfl_id => ByRow(in(sensor_bwfl_id)), :datetime => ByRow(in(datetime_train[burn_in + 1:end])))
+    vals_df = unstack(cl_df_filter, :datetime, :bwfl_id, :mean)
+    sensor_cols = Symbol.(sensor_bwfl_id)
+    ȳ = Float64[]
+    for col in sensor_cols
+        append!(ȳ, vals_df[:, col])
     end
+    missing_count = sum(ismissing.(ȳ))
+    missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
+    
+    δ = ȳ .* δ_s
+    Γ = δ.^2 .* I(y_n)
+    Σ = MvNormal(zeros(y_n), Γ)
+    
+    # prior distributions
+    prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * δ_b), -Inf, 0.0)
+    for i = 1:θ_n-1
+        if wall_prior == "uniform"
+            prior_wall = constrained_gaussian("θ_w_$i", (θ_w_lb[i] + θ_w_ub[i]) ./ 2, abs((θ_w_ub[i] - θ_w_lb[i]) ./ 3.333), θ_w_lb[i], θ_w_ub[i])
+            # prior_wall = ParameterDistribution(Parameterized(Uniform(θ_w_lb[i], θ_w_ub[i])), bounded(θ_w_lb[i], θ_w_ub[i]), "θ_w_$i")
+            # prior_wall = ParameterDistribution(Parameterized(Uniform(θ_w_lb[i], θ_w_ub[i])), no_constraint(), "θ_w_$i")
+            prior = combine_distributions([prior, prior_wall])
+        else
+            @error "$wall_prior distribution not available."
+        end
+    end
+    
+    # plot(prior)
+    
+    # set up EKI
+    ensemble_0 = EKP.construct_initial_ensemble(rng, prior, n_ensemble)
+    
+    # create EKI process
+    process = EKP.EnsembleKalmanProcess(
+        ensemble_0,
+        ȳ,
+        Γ,
+        Inversion(),
+        scheduler = DataMisfitController(on_terminate="stop");
+        rng=rng,
+    )
+    
+    # run EKI iterations
+    for i in 1:n_iter
+        println("Iteration $i/$n_iter")
+        θ_i = get_ϕ_final(prior, process)
+        g_ens = hcat([forward_model(wn, θ_i[:, j], grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=burn_in) for j in 1:n_ensemble]...)
+        status = EKP.update_ensemble!(process, g_ens)
+        if status == true
+            println("Converged at iteration $i")
+            break
+        end
+    end
+    
+    # get results
+    θ_final = get_ϕ_final(prior, process)
+
+    u_init = get_u_prior(process)
+    θ_init = transform_unconstrained_to_constrained(prior, u_init)
+    
+    return θ_init, θ_final
+
 end
-
-plot(prior)
-
-# set up EKI
-n_ensemble = 50
-n_iter = 20
-ensemble_0 = EKP.construct_initial_ensemble(rng, prior, n_ensemble)
-
-# create EKI process
-process = EKP.EnsembleKalmanProcess(
-    ensemble_0,
-    ȳ,
-    Γ,
-    Inversion(); rng=rng,
-)
-
-# run EKI iterations
-# (check 'on_terminate' argument for stopping criteria)
-for i in 1:n_iter
-    println("Iteration $i/$n_iter")
-    θ_i = get_ϕ_final(prior, process)
-    g_ens = hcat([forward_model(wn_train, θ_i[:, j], grouping, datetime_train, exclude_sensors; sim_type="chlorine", burn_in=burn_in) for j in 1:n_ensemble]...)
-    EKP.update_ensemble!(process, g_ens)
-end
-
-# get final ensemble
-ensemble_n = get_ϕ_final(prior, process)
-
