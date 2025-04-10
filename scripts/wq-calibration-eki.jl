@@ -152,7 +152,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 
 ### 7. results plotting ###
-p = plot_parameter_distribution(θ_init, θ_final, 3, 3)
+p = plot_parameter_distribution(θ_init, θ_final, 1, 2)
 
 
 
@@ -394,8 +394,8 @@ function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2)
 
     else
         # scatter plot
-        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], alpha=0.65, label="", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:topright, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
-        scatter!(p, θ_final[param_1, :], θ_final[param_2, :], alpha=0.85, label="", color=wong_colors[2], markerstrokewidth=0)
+        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], markersize=5, alpha=0.65, label="", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:topright, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+        scatter!(p, θ_final[param_1, :], θ_final[param_2, :], markersize=5, alpha=0.85, label="", color=wong_colors[2], markerstrokewidth=0)
     end
     
     return p
