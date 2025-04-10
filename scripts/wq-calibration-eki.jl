@@ -6,7 +6,8 @@ This script calibrates the Field Lab's water quality model using ensemble Kalman
     4. set pipe grouping and define θ priors (DONE)
     5. create forward model function, F <-- wn, θ, grouping (DONE)
     6. create EKI calibration function: EKI <-- F, θ_prior (DONE)
-    7. results plotting
+    7. results plotting 
+    8. save θ, ȳ, and L data (DONE)
 """
 
 using Revise
@@ -23,6 +24,7 @@ using Random
 using Plots
 using Plots.PlotMeasures
 using PyCall
+using JLD2
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
@@ -30,6 +32,7 @@ data = pyimport("bayesian_wq_calibration.data")
 epanet = pyimport("bayesian_wq_calibration.epanet")
 
 const TIMESERIES_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/data/timeseries"
+const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/"
 const EKP = EnsembleKalmanProcesses
 
 wong_colors = [
@@ -124,21 +127,46 @@ y = forward_model(wn_train, θ, grouping, datetime_train, exclude_sensors; sim_t
 
 
 ### 6. eki calibration ###
-θ_init, θ_final = eki_calibration(θ_b_train, θ_w_lb, θ_w_ub, cl_df, wn_train, datetime_train, exclude_sensors, grouping;burn_in=24*4, δ_s=0.15, δ_b=0.025)
+
+# get sensor data
+bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
+sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+cl_df_filter = subset(cl_df, :bwfl_id => ByRow(in(sensor_bwfl_id)), :datetime => ByRow(in(datetime_train[burn_in + 1:end])))
+vals_df = unstack(cl_df_filter, :datetime, :bwfl_id, :mean)
+sensor_cols = Symbol.(sensor_bwfl_id)
+ȳ = Float64[]
+for col in sensor_cols
+    append!(ȳ, vals_df[:, col])
+end
+missing_count = sum(ismissing.(ȳ))
+missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
+
+# set noise
+δ_s = 0.1
+δ_b = 0.025
+
+# eki calibration
+θ_init, θ_final = run_eki_calibration(θ_b_train, θ_w_lb, θ_w_ub, wn_train, datetime_train, exclude_sensors, grouping, ȳ; burn_in=24*4, δ_s=δ_s, δ_b=δ_b)
 
 
 
 ### 7. results plotting ###
 
 # θ_b
-histogram(θ_init[1, :], label="Initial ensemble", color=wong_colors[1])
-histogram!(θ_final[1, :], label="Final ensemble", color=wong_colors[2])
+histogram(θ_init[1, :], label="Initial ensemble", bins=25, color=wong_colors[1])
+histogram!(θ_final[1, :], label="Final ensemble", bins=25, color=wong_colors[2])
 
 # θ_w ...
-histogram(θ_init[2, :], label="Initial ensemble", color=wong_colors[1])
-histogram(θ_final[2, :], label="Final ensemble", color=wong_colors[3])
+histogram(θ_init[2, :], label="Initial ensemble", bins=25, color=wong_colors[1])
+histogram(θ_final[2, :], label="Final ensemble", bins=50, color=wong_colors[3])
+
+histogram(θ_init[3, :], label="Initial ensemble", bins=25, color=wong_colors[1])
+histogram(θ_final[3, :], label="Final ensemble", bins=15, color=wong_colors[4])
 
 
+
+### 8. save θ, ȳ, and L data ###
+eki_results = summarize_eki_results(θ_final, wn_train, datetime_train, exclude_sensors, grouping, ȳ, δ_s; sim_type="chlorine", burn_in=24*4, save_results=true)
 
 
 
@@ -179,7 +207,7 @@ function plot_bwfl_data(df, ylabel; ymax=nothing)
 end
 
 
-function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="flow", burn_in=96)
+function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=96)
 
     θ_b = θ[1]
     θ_w = θ[2:end]
@@ -211,7 +239,7 @@ function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="fl
 end
 
 
-function eki_calibration(θ_b, θ_w_lb, θ_w_ub, cl_df, wn, datetime, exclude_sensors, grouping; burn_in=24*4, δ_s=0.1, δ_b=0.025, wall_prior="uniform", n_ensemble=100, n_iter=25)
+function run_eki_calibration(θ_b, θ_w_lb, θ_w_ub, wn, datetime, exclude_sensors, grouping, ȳ; burn_in=24*4, δ_s=0.1, δ_b=0.025, wall_prior="uniform", n_ensemble=100, n_iter=25)
 
     rng = Random.seed!(Random.GLOBAL_RNG)
 
@@ -223,19 +251,7 @@ function eki_calibration(θ_b, θ_w_lb, θ_w_ub, cl_df, wn, datetime, exclude_se
     θ_n = length(θ_1)
     y_n = length(y_1)
     
-    # sensor data + noise
-    bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
-    sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
-    cl_df_filter = subset(cl_df, :bwfl_id => ByRow(in(sensor_bwfl_id)), :datetime => ByRow(in(datetime_train[burn_in + 1:end])))
-    vals_df = unstack(cl_df_filter, :datetime, :bwfl_id, :mean)
-    sensor_cols = Symbol.(sensor_bwfl_id)
-    ȳ = Float64[]
-    for col in sensor_cols
-        append!(ȳ, vals_df[:, col])
-    end
-    missing_count = sum(ismissing.(ȳ))
-    missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
-    
+    # sensor noise
     δ = ȳ .* δ_s
     Γ = δ.^2 .* I(y_n)
     Σ = MvNormal(zeros(y_n), Γ)
@@ -289,3 +305,82 @@ function eki_calibration(θ_b, θ_w_lb, θ_w_ub, cl_df, wn, datetime, exclude_se
     return θ_init, θ_final
 
 end
+
+
+
+
+function summarize_eki_results(θ_final, wn, datetime, exclude_sensors, grouping, ȳ, δ_s; sim_type="chlorine", burn_in=24*4, save_results=true)
+
+    output_path = RESULTS_PATH * "/wq/eki_calibration/"
+
+    eki_results = Dict{Int, Dict{String, Any}}()
+
+    n_ensemble = size(θ_final, 2)
+
+    # compute forward model and loss function for each θ sample
+    for m in 1:n_ensemble
+
+        eki_results[m] = Dict{String, Any}()
+        θ_m = θ_final[:, m]
+        
+        eki_results[m]["θ"] = θ_m
+        
+        y_m = forward_model(wn, θ_m, grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
+            
+        n_sensors = length(sensor_bwfl_id)
+        n_timesteps = length(datetime[burn_in + 1:end])
+        if length(y_m) != n_sensors * n_timesteps
+            error("Length of y ($(length(y_m))) doesn't match expected size ($(n_sensors * n_timesteps))")
+        end
+        y_df = DataFrame()
+        y_df.datetime = repeat(datetime[burn_in + 1:end], outer=n_sensors)
+        y_df.bwfl_id = repeat(sensor_bwfl_id, inner=n_timesteps)
+        y_df.value = y_m
+        y_df = unstack(y_df, :datetime, :bwfl_id, :value)
+
+        eki_results[m]["y_df"] = y_df
+        
+        # compute negative log-likelihood
+        residual = y_m - ȳ
+        Γ = δ_s^2 .* I(length(y_m))
+        
+        missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
+        valid_indices = findall(x -> x == 1, missing_mask) 
+        
+        loss = 0
+        if length(valid_indices) > 0
+            valid_residual = residual[valid_indices]
+            valid_Γ = Γ[valid_indices, valid_indices]
+            loss = dot(valid_residual, valid_Γ \ valid_residual)
+        else
+            loss = NaN
+        end
+        eki_results[m]["loss"] = loss
+        
+    end
+
+        if save_results
+            filename = joinpath(output_path, "$(data_period)_$(grouping).jld2")
+            JLD2.save(filename, "eki_results", eki_results)
+        end
+
+        return eki_results
+
+end
+
+
+function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2)
+    
+    if param_1 == param_2
+        # histogram
+        p = histogram(θ_initial[param_1, :], bins=20, alpha=0.6, label="Initial", color=wong_colors[1], xlabel="θ_$param_1",ylabel="Frequency", legend=:topright)
+        histogram!(p, θ_final[param_1, :], bins=20, alpha=0.6, label="Final", color=wong_colors[7])
+    else
+        # scatter plot
+        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], alpha=0.6, label="Initial", color=wong_colors[1], xlabel="θ_$param_1", ylabel="θ_$param_2", legend=:topright)
+        scatter!(p, θ_final[param_1, :], θ_final[param_2, :], alpha=0.6, label="Final", color=wong_colors[2])
+    end
+    
+    return p
+end
+
