@@ -25,6 +25,7 @@ using Plots
 using Plots.PlotMeasures
 using PyCall
 using JLD2
+using LaTeXStrings
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
@@ -151,17 +152,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 
 ### 7. results plotting ###
-
-# θ_b
-histogram(θ_init[1, :], label="Initial ensemble", bins=25, color=wong_colors[1])
-histogram!(θ_final[1, :], label="Final ensemble", bins=25, color=wong_colors[2])
-
-# θ_w ...
-histogram(θ_init[2, :], label="Initial ensemble", bins=25, color=wong_colors[1])
-histogram(θ_final[2, :], label="Final ensemble", bins=50, color=wong_colors[3])
-
-histogram(θ_init[3, :], label="Initial ensemble", bins=25, color=wong_colors[1])
-histogram(θ_final[3, :], label="Final ensemble", bins=15, color=wong_colors[4])
+p = plot_parameter_distribution(θ_init, θ_final, 3, 3)
 
 
 
@@ -370,17 +361,47 @@ end
 
 
 function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2)
+
+    if param_1 == 1
+        label_1 = L"\theta_b"
+    else
+        label_1 = L"\theta_w_{%$(param_1-1)}"
+    end
+    if param_2 == 1
+        label_2 = L"\theta_b"
+    else
+        label_2 = L"\theta_w_{%$(param_2-1)}"
+    end
+
+    all_vals_1 = [θ_initial[param_1, :]; θ_final[param_1, :]]
+    x_min = floor(minimum(all_vals_1) * 20) / 20
+    x_max = ceil(maximum(all_vals_1) * 20) / 20
+    x_min = fix_negative_zero(x_min)
+    x_max = fix_negative_zero(x_max)
+
+    all_vals_2 = [θ_initial[param_2, :]; θ_final[param_2, :]]
+    y_min = floor(minimum(all_vals_2) * 20) / 20
+    y_max = ceil(maximum(all_vals_2) * 20) / 20
+    y_min = fix_negative_zero(y_min)
+    y_max = fix_negative_zero(y_max)
+
+    bin_edges = LinRange(x_min, x_max, 26)
     
     if param_1 == param_2
         # histogram
-        p = histogram(θ_initial[param_1, :], bins=20, alpha=0.6, label="Initial", color=wong_colors[1], xlabel="θ_$param_1",ylabel="Frequency", legend=:topright)
-        histogram!(p, θ_final[param_1, :], bins=20, alpha=0.6, label="Final", color=wong_colors[7])
+        p = histogram(θ_initial[param_1, :], bins=bin_edges, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel="Frequency", legend=:topleft, linecolor=:transparent, xlims=(x_min, x_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+        histogram!(p, θ_final[param_1, :], bins=bin_edges, alpha=0.85, label="Final", color=wong_colors[2], linecolor=:transparent)
+
     else
         # scatter plot
-        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], alpha=0.6, label="Initial", color=wong_colors[1], xlabel="θ_$param_1", ylabel="θ_$param_2", legend=:topright)
-        scatter!(p, θ_final[param_1, :], θ_final[param_2, :], alpha=0.6, label="Final", color=wong_colors[2])
+        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], alpha=0.65, label="", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:topright, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+        scatter!(p, θ_final[param_1, :], θ_final[param_2, :], alpha=0.85, label="", color=wong_colors[2], markerstrokewidth=0)
     end
     
     return p
 end
 
+
+function fix_negative_zero(x)
+    return x == -0.0 ? 0.0 : x
+end
