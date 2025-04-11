@@ -6,7 +6,7 @@ This script calibrates the Field Lab's water quality model using ensemble Kalman
     4. set pipe grouping and define θ priors (DONE)
     5. create forward model function, F <-- wn, θ, grouping (DONE)
     6. create EKI calibration function: EKI <-- F, θ_prior (DONE)
-    7. results plotting 
+    7. results plotting (DONE)
     8. save θ, ȳ, and L data (DONE)
 """
 
@@ -123,7 +123,8 @@ end
 θ_w = (θ_w_lb + θ_w_ub) ./ 2
 θ = [θ_b_train; θ_w]
 exclude_sensors = ["BW1", "BW4", "BW7"]
-y = forward_model(wn_train, θ, grouping, datetime_train, exclude_sensors; sim_type="chlorine")
+burn_in = 24 * 4
+y = forward_model(wn_train, θ, grouping, datetime_train, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
 
 
 
@@ -143,16 +144,17 @@ missing_count = sum(ismissing.(ȳ))
 missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 # set noise
-δ_s = 0.1
+δ_s = 0.2
 δ_b = 0.025
 
 # eki calibration
-θ_init, θ_final = run_eki_calibration(θ_b_train, θ_w_lb, θ_w_ub, wn_train, datetime_train, exclude_sensors, grouping, ȳ; burn_in=24*4, δ_s=δ_s, δ_b=δ_b)
+θ_init, θ_final, stats = run_eki_calibration(θ_b_train, θ_w_lb, θ_w_ub, wn_train, datetime_train, exclude_sensors, grouping, ȳ; burn_in=burn_in, δ_s=δ_s, δ_b=δ_b)
 
 
 
 ### 7. results plotting ###
-p = plot_parameter_distribution(θ_init, θ_final, 1, 2)
+plot_eki_progress(stats)
+plot_parameter_distribution(θ_init, θ_final, 2, 2)
 
 
 
@@ -230,9 +232,17 @@ function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="ch
 end
 
 
-function run_eki_calibration(θ_b, θ_w_lb, θ_w_ub, wn, datetime, exclude_sensors, grouping, ȳ; burn_in=24*4, δ_s=0.1, δ_b=0.025, wall_prior="uniform", n_ensemble=100, n_iter=25)
+function run_eki_calibration(θ_b, θ_w_lb, θ_w_ub, wn, datetime, exclude_sensors, grouping, ȳ; burn_in=24*4, δ_s=0.1, δ_b=0.025, wall_prior="uniform", n_ensemble=100, n_iter=10)
 
-    rng = Random.seed!(Random.GLOBAL_RNG)
+
+    bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
+    sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+    n_sensor = length(sensor_bwfl_id)
+
+    n_time = length(datetime[burn_in + 1:end])
+
+    # rng = Random.seed!(Random.GLOBAL_RNG)
+    rng = Random.seed!(42)
 
     # parameter data
     θ_w_1 = (θ_w_lb + θ_w_ub) ./ 2
@@ -246,6 +256,9 @@ function run_eki_calibration(θ_b, θ_w_lb, θ_w_ub, wn, datetime, exclude_senso
     δ = ȳ .* δ_s
     Γ = δ.^2 .* I(y_n)
     Σ = MvNormal(zeros(y_n), Γ)
+
+    missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
+    valid_indices = findall(x -> x == 1, missing_mask) 
     
     # prior distributions
     prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * δ_b), -Inf, 0.0)
@@ -271,29 +284,63 @@ function run_eki_calibration(θ_b, θ_w_lb, θ_w_ub, wn, datetime, exclude_senso
         ȳ,
         Γ,
         Inversion(),
+        # scheduler = DataMisfitController(on_terminate="continue_fixed");
         scheduler = DataMisfitController(on_terminate="stop");
         rng=rng,
     )
     
     # run EKI iterations
+    stats = Dict{Int, Dict{String, Any}}()
+    k = 0
     for i in 1:n_iter
+
         println("Iteration $i/$n_iter")
+
+        # get parameters
+        stats[i] = Dict{String, Any}()
         θ_i = get_ϕ_final(prior, process)
+        stats[i]["θ_mean"] = mean(θ_i, dims=2)
+        stats[i]["θ_sd"] = std(θ_i, dims=2)
+
+        # get model predictions
         g_ens = hcat([forward_model(wn, θ_i[:, j], grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=burn_in) for j in 1:n_ensemble]...)
+
+        # compute loss function
+        mean_residuals = zeros(n_ensemble, n_sensor)
+        loss = Float64[]
+
+        for j in 1:n_ensemble
+            residual_j = g_ens[:, j] - ȳ
+            mean_residuals[j, :] = mean(reshape(abs.(residual_j), n_time, n_sensor), dims=1)
+            if length(valid_indices) > 0
+                valid_residual_j = residual_j[valid_indices]
+                valid_Γ = Γ[valid_indices, valid_indices]
+                append!(loss, dot(valid_residual_j, valid_Γ \ valid_residual_j))
+            else
+                append!(loss, NaN)
+            end
+        end
+        stats[i]["residual_mean"] = mean(mean_residuals, dims=1)
+        stats[i]["loss_mean"] = mean(loss)
+        stats[i]["loss_sd"] = std(loss)
+
         status = EKP.update_ensemble!(process, g_ens)
+        # println("Status: $status")
         if status == true
-            println("Converged at iteration $i")
-            break
+            k += 1
+            if k > 1
+                println("Converged at iteration $i")
+                break
+            end
         end
     end
     
     # get results
     θ_final = get_ϕ_final(prior, process)
-
     u_init = get_u_prior(process)
     θ_init = transform_unconstrained_to_constrained(prior, u_init)
     
-    return θ_init, θ_final
+    return θ_init, θ_final, stats
 
 end
 
@@ -351,7 +398,7 @@ function summarize_eki_results(θ_final, wn, datetime, exclude_sensors, grouping
     end
 
         if save_results
-            filename = joinpath(output_path, "$(data_period)_$(grouping).jld2")
+            filename = joinpath(output_path, "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s)).jld2")
             JLD2.save(filename, "eki_results", eki_results)
         end
 
@@ -385,7 +432,7 @@ function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2)
     y_min = fix_negative_zero(y_min)
     y_max = fix_negative_zero(y_max)
 
-    bin_edges = LinRange(x_min, x_max, 26)
+    bin_edges = LinRange(x_min, x_max, 31)
     
     if param_1 == param_2
         # histogram
@@ -394,11 +441,51 @@ function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2)
 
     else
         # scatter plot
-        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], markersize=5, alpha=0.65, label="", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:topright, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
-        scatter!(p, θ_final[param_1, :], θ_final[param_2, :], markersize=5, alpha=0.85, label="", color=wong_colors[2], markerstrokewidth=0)
+        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], markersize=5, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:bottomleft, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+        scatter!(p, θ_final[param_1, :], θ_final[param_2, :], markersize=5, alpha=0.85, label="Final", color=wong_colors[2], markerstrokewidth=0)
+
+        
     end
     
-    return p
+end
+
+
+function plot_eki_progress(stats)
+
+    # get eki stats
+    n = length(stats)
+    θ_mean = vcat([stats[i]["θ_mean"]' for i in 1:n]...)
+    θ_sd = vcat([stats[i]["θ_sd"]' for i in 1:n]...)
+    residual_mean = vcat([stats[i]["residual_mean"] for i in 1:n]...)
+    println(residual_mean)
+    loss_mean = vcat([stats[i]["loss_mean"]' for i in 1:n]...)
+    loss_sd = vcat([stats[i]["loss_sd"]' for i in 1:n]...)
+    
+    # get plot labels
+    n_sensor = size(θ_mean, 2)
+    θ_labels = String[]
+    for i in 1:n_sensor
+        if i == 1
+            push!(θ_labels, L"\theta_b")
+        else
+            push!(θ_labels, L"\theta_w_{%$(i-1)}")
+        end
+    end
+
+    bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
+    sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+
+    # make plots
+    p1 = plot(1:size(θ_sd, 1), θ_sd, color=reshape(wong_colors[1:size(θ_sd, 2)], 1, :), linewidth=2, label=reshape(θ_labels, 1, :), xlabel="Iteration", ylabel="Ensemble SD", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+    display(p1)
+
+    p2 = plot(1:size(residual_mean, 1), residual_mean, color=reshape(wong_colors[1:size(residual_mean, 2)], 1, :), linewidth=2, label=reshape(sensor_bwfl_id, 1, :), xlabel="Iteration", ylabel="Mean residual [mg/L]", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+    display(p2)
+
+    p3 = plot(1:size(loss_mean, 1), loss_mean, color=wong_colors[1], linewidth=2, label="", xlabel="Iteration", ylabel="Loss", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+    display(p3)
+
+
 end
 
 
