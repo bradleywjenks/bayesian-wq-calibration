@@ -23,9 +23,14 @@ using Colors
 using Random
 using Plots
 using Plots.PlotMeasures
+using PGFPlotsX
 using PyCall
 using JLD2
 using LaTeXStrings
+
+# pgfplotsx()
+# PGFPlotsX.latexengine!(PGFPlotsX.PDFLATEX)
+# ENV["PGFPLOTSX_BACKEND"] = "pdf"
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
@@ -61,7 +66,7 @@ cl_df = wq_df[wq_df.data_type .== "chlorine", :]
 
 ylabel = "Chlorine [mg/L]" # "Flow [L/s]", "Pressure [m]", "Chlorine [mg/L]"
 df = cl_df # cl_df, flow_df, pressure_df
-plot_bwfl_data(df, ylabel, ymax=0.7)
+p1a = plot_bwfl_data(df, ylabel, ymax=0.7)
 
 
 
@@ -80,7 +85,7 @@ datetime_test = unique_datetime[range_test]
 
 ylabel = "Chlorine [mg/L]" # "Flow [L/s]", "Pressure [m]", "Chlorine [mg/L]"
 df_filter = filter(row -> row.datetime ∈ datetime_train, cl_df)
-plot_bwfl_data(df_filter, ylabel, ymax=0.7)
+p1b = plot_bwfl_data(df_filter, ylabel, ymax=0.7)
 
 
 
@@ -153,8 +158,8 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 
 ### 7. results plotting ###
-plot_eki_progress(stats)
-plot_parameter_distribution(θ_init, θ_final, 2, 2)
+p2a, p2b, p2c = plot_eki_progress(stats; save_tex=true)
+p3 = plot_parameter_distribution(θ_init, θ_final, 1, 1; save_tex=true)
 
 
 
@@ -188,15 +193,15 @@ function plot_bwfl_data(df, ylabel; ymax=nothing)
 
     bwfl_ids = unique(df.bwfl_id)
 
-    plt = plot(xlabel="Datetime", ylabel=ylabel, legend=:outertopright, foreground_color_legend=nothing, ylims=(0, ymax), size=(1000, 450), left_margin=8mm, bottom_margin=8mm, top_margin=8mm, xtickfont=14, ytickfont=14, xguidefont=16, yguidefont=16, legendfont=14)
+    p = plot(xlabel="", ylabel=ylabel, legend=:outertopright, foreground_color_legend=nothing, ylims=(0, ymax), size=(950, 500), left_margin=8mm, bottom_margin=8mm, top_margin=8mm, xtickfont=14, ytickfont=14, xguidefont=16, yguidefont=16, legendfont=12, grid=false)
 
     for (i, name) in enumerate(bwfl_ids)
         color = wong_colors[mod1(i, length(wong_colors))]
         df_subset = df[df.bwfl_id .== name, :]
-        plot!(plt, df_subset.datetime, df_subset.mean, label=name, lw=1.5, color=color)
+        plot!(p, df_subset.datetime, df_subset.mean, label=name, lw=1.5, color=color)
     end
 
-    return plt
+    return p
 end
 
 
@@ -407,7 +412,9 @@ function summarize_eki_results(θ_final, wn, datetime, exclude_sensors, grouping
 end
 
 
-function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2)
+function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2; save_tex=false, filename=nothing)
+
+    output_path = RESULTS_PATH * "/wq/eki_calibration/"
 
     if param_1 == 1
         label_1 = L"\theta_b"
@@ -436,21 +443,63 @@ function plot_parameter_distribution(θ_initial, θ_final, param_1, param_2)
     
     if param_1 == param_2
         # histogram
-        p = histogram(θ_initial[param_1, :], bins=bin_edges, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel="Frequency", legend=:topleft, linecolor=:transparent, xlims=(x_min, x_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+        p = histogram(θ_initial[param_1, :], bins=bin_edges, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel="Frequency", legend=:topleft, linecolor=:transparent, xlims=(x_min, x_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
         histogram!(p, θ_final[param_1, :], bins=bin_edges, alpha=0.85, label="Final", color=wong_colors[2], linecolor=:transparent)
 
     else
         # scatter plot
-        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], markersize=5, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:bottomleft, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+        p = scatter(θ_initial[param_1, :], θ_initial[param_2, :], markersize=5, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:bottomleft, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
         scatter!(p, θ_final[param_1, :], θ_final[param_2, :], markersize=5, alpha=0.85, label="Final", color=wong_colors[2], markerstrokewidth=0)
-
-        
+    
     end
     
+    if save_tex
+        if isnothing(filename)
+            if param_1 == param_2
+                param_name = param_1 == 1 ? "θb" : "θw_$(param_1-1)"
+                filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_hist_$(param_name).tex"
+            else
+                param1_name = param_1 == 1 ? "θb" : "θw_$(param_1-1)"
+                param2_name = param_2 == 1 ? "θb" : "θw_$(param_2-1)"
+                filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_scatter_$(param1_name)_v_$(param2_name).tex"
+            end
+        end
+        
+        try
+            pgfplotsx()
+            
+            if param_1 == param_2
+
+                # histogram
+                p_pgf = histogram(θ_initial[param_1, :], bins=bin_edges, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel="Frequency", legend=:topleft, linecolor=:transparent, xlims=(x_min, x_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
+                histogram!(p_pgf, θ_final[param_1, :], bins=bin_edges, alpha=0.85, label="Final", color=wong_colors[2], linecolor=:transparent)
+
+            else
+
+                # scatter plot
+                p_pgf = scatter(θ_initial[param_1, :], θ_initial[param_2, :], markersize=5, alpha=0.65, label="Initial", color=wong_colors[1], xlabel=label_1, ylabel=label_2, legend=:bottomleft, markerstrokewidth=0, xlims=(x_min, x_max), ylims=(y_min, y_max), size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
+                scatter!(p_pgf, θ_final[param_1, :], θ_final[param_2, :], markersize=5, alpha=0.85, label="Final", color=wong_colors[2], markerstrokewidth=0)
+
+            end
+            
+            savefig(p_pgf, output_path * filename)
+            gr()
+            println("Plot saved as $filename")
+
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+
+        end
+    end
+
+    return p
 end
 
 
-function plot_eki_progress(stats)
+function plot_eki_progress(stats; save_tex=false, filename=nothing)
+
+    output_path = RESULTS_PATH * "/wq/eki_calibration/"
 
     # get eki stats
     n = length(stats)
@@ -476,15 +525,42 @@ function plot_eki_progress(stats)
     sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
 
     # make plots
-    p1 = plot(1:size(θ_sd, 1), θ_sd, color=reshape(wong_colors[1:size(θ_sd, 2)], 1, :), linewidth=2, label=reshape(θ_labels, 1, :), xlabel="Iteration", ylabel="Ensemble SD", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+    p1 = plot(1:size(θ_sd, 1), θ_sd, color=reshape(wong_colors[1:size(θ_sd, 2)], 1, :), linewidth=2, label=reshape(θ_labels, 1, :), xlabel="Iteration", ylabel="Ensemble SD", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
     display(p1)
 
-    p2 = plot(1:size(residual_mean, 1), residual_mean, color=reshape(wong_colors[1:size(residual_mean, 2)], 1, :), linewidth=2, label=reshape(sensor_bwfl_id, 1, :), xlabel="Iteration", ylabel="Mean residual [mg/L]", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+    p2 = plot(1:size(residual_mean, 1), residual_mean, color=reshape(wong_colors[1:size(residual_mean, 2)], 1, :), linewidth=2, label=reshape(sensor_bwfl_id, 1, :), xlabel="Iteration", ylabel="Mean residual [mg/L]", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
     display(p2)
 
-    p3 = plot(1:size(loss_mean, 1), loss_mean, color=wong_colors[1], linewidth=2, label="", xlabel="Iteration", ylabel="Loss", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=12, ytickfont=12, xguidefont=16, yguidefont=16, legendfont=12, foreground_color_legend=nothing, grid=false)
+    p3 = plot(1:size(loss_mean, 1), loss_mean, color=wong_colors[1], linewidth=2, label="", xlabel="Iteration", ylabel="Loss", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
     display(p3)
 
+    if save_tex
+        if isnothing(filename)
+            filename_p1 = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_eki_progress_1.tex"
+            filename_p2 = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_eki_progress_2.tex"
+            filename_p3 = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_eki_progress_3.tex"
+        end
+        try
+            pgfplotsx()
+
+            p1_pfg = plot(1:size(θ_sd, 1), θ_sd, color=reshape(wong_colors[1:size(θ_sd, 2)], 1, :), linewidth=2, label=reshape(θ_labels, 1, :), xlabel="Iteration", ylabel="Ensemble SD", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
+        
+            p2_pfg = plot(1:size(residual_mean, 1), residual_mean, color=reshape(wong_colors[1:size(residual_mean, 2)], 1, :), linewidth=2, label=reshape(sensor_bwfl_id, 1, :), xlabel="Iteration", ylabel="Mean residual [mg/L]", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
+        
+            p3_pfg = plot(1:size(loss_mean, 1), loss_mean, color=wong_colors[1], linewidth=2, label="", xlabel="Iteration", ylabel="Loss", legend=:topright, size=(525, 400), left_margin=2mm, right_margin=8mm, bottom_margin=2mm, top_margin=2mm, xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18, legendfont=14, foreground_color_legend=nothing, grid=false)
+
+            savefig(p1_pfg, output_path * filename_p1)
+            savefig(p2_pfg, output_path * filename_p2)
+            savefig(p3_pfg, output_path * filename_p3)
+            gr()
+            println("Plots saved as $filename_p1, $filename_p2, $filename_p3")
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+        end
+    end
+
+    return p1, p2, p3
 
 end
 

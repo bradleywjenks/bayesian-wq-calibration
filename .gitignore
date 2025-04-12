@@ -177,3 +177,6 @@ data/timeseries/imputed/*
 !notebooks/02-GA-model-calibration.ipynb
 
 *DS_Store
+
+# results
+results/*
