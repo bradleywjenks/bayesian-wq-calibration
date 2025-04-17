@@ -159,7 +159,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 ### 7. results plotting ###
 p2a, p2b, p2c = plot_eki_progress(stats; save_tex=true)
-p3 = plot_parameter_distribution(θ_init, θ_final, 1, 1; save_tex=true)
+p3 = plot_parameter_distribution(θ_init, θ_final, 3, 3; save_tex=true)
 
 
 
