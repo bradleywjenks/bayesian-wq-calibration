@@ -4,8 +4,8 @@ the following steps are performed:
     1. load parameter-output pairs from eki calibration (Done)
     2. extract parameter-output pairs from eki ensemble (Done)
     3. train and test gp model for selected sensors using k-folds cross validation (DONE)
-    4. test on expanded θ samples
-    5. visualize results
+    4. test on expanded θ samples (DONE)
+    5. visualize results (DONE)
 """
 
 using Revise
