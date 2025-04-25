@@ -109,10 +109,10 @@ wn = epanet.build_model(
 )
 exclude_sensors = ["BW1", "BW4", "BW7"]
 burn_in = 24 * 4
-σ_mult = 1.0
 n_expand = 100
+lhs_dist = "uniform"
 
-test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, σ_mult, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in)
+test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist=lhs_dist)
 
 
 
@@ -124,7 +124,7 @@ y_pred_σ = test_results["y_pred_σ"]
 
 filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)"
 
-θ_n = 2
+θ_n = 1
 save_tex = true
 begin
     p0 = histogram(x_test[:, θ_n], alpha=0.5, color=wong_colors[2], label="Extended θ", xlabel="θ", ylabel="Frequency", grid=false, size=(750, 400), left_margin=4mm, right_margin=8mm, bottom_margin=4mm, top_margin=4mm, xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legend=:outertopright, legendfont=12, foreground_color_legend=nothing)
@@ -600,14 +600,14 @@ end
 
 
 
-function test_expanded_θ(gp_model, scaler, n_expand, σ_mult, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in)
+function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist="uniform")
 
     n_output = size(y, 2)
     θ_means = vec(mean(θ_samples, dims=1))
     θ_stds = vec(std(θ_samples, dims=1))
 
     # sample extended θ
-    x_test = latin_hypercube_sampling(θ_means, θ_stds, n_expand, σ_mult)
+    x_test = latin_hypercube_sampling(θ_means, θ_stds, n_expand, dist_type=lhs_dist)
     x_test_scaled = scaler.transform(x_test)
 
     # run forward model
@@ -682,19 +682,33 @@ end
 
 
 
-function latin_hypercube_sampling(θ_means, θ_stds, n_expand, σ_mult)
+
+function latin_hypercube_sampling(θ_means, θ_stds, n_expand; dist_type="uniform")
 
     n_params = length(θ_means)
     result = zeros(n_expand, n_params)
-    
+
     for j in 1:n_params
-        column = [(i - 0.5 + rand())/n_expand for i in 1:n_expand]
-        shuffle!(column)
-        min_val = θ_means[j] - σ_mult * θ_stds[j] * 3
-        max_val = θ_means[j] + σ_mult * θ_stds[j] * 3
-        result[:, j] = min.(min_val .+ column .* (max_val - min_val), -1e-4)
+
+        ε = 1e-10
+        u = [(i - 1 + rand() * (1 - 2ε)) / n_expand + ε for i in 1:n_expand]
+        shuffle!(u)
+
+        if dist_type == "normal"
+            d = Normal(θ_means[j], θ_stds[j])
+            samples = quantile.(d, u)
+        elseif dist_type == "uniform"
+            a = θ_means[j] - 3 * θ_stds[j]
+            b = θ_means[j] + 3 * θ_stds[j]
+            samples = a .+ u .* (b - a)
+        else
+            error("Unsupported distribution type: \"$dist_type\". Use \"normal\" or \"uniform\".")
+        end
+
+        result[:, j] = clamp.(samples, -Inf, -1e-5)
     end
-    
+
     return result
 end
+
 
