@@ -109,10 +109,11 @@ wn = epanet.build_model(
 )
 exclude_sensors = ["BW1", "BW4", "BW7"]
 burn_in = 24 * 4
-σ_mult = 1.5
-n_expand = 50
+σ_mult = 1.0
+n_expand = 100
 
 test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, σ_mult, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in)
+
 
 
 ### 5. visualize results ###
@@ -121,10 +122,17 @@ y_test = test_results["y_test"]
 y_pred_μ = test_results["y_pred_μ"]
 y_pred_σ = test_results["y_pred_σ"]
 
-p0 = histogram(x_test[:, 3])
-p1 = plot_parity(y_test, y_pred_μ)
-p2 = plot_time_series(y_test, y_pred_μ, y_pred_σ, n_samples=5)
-p3 = plot_error_histogram(y_test, y_pred_μ)
+filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)"
+
+θ_n = 2
+save_tex = true
+begin
+    p0 = histogram(x_test[:, θ_n], alpha=0.5, color=wong_colors[2], label="Extended θ", xlabel="θ", ylabel="Frequency", grid=false, size=(750, 400), left_margin=4mm, right_margin=8mm, bottom_margin=4mm, top_margin=4mm, xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legend=:outertopright, legendfont=12, foreground_color_legend=nothing)
+    p0 = histogram!(θ_samples[:, θ_n], alpha=0.5, color=wong_colors[3], label="EKI θ")
+end
+p1 = plot_parity(y_test, y_pred_μ, filename, save_tex=save_tex)
+p2 = plot_time_series(y_test, y_pred_μ, y_pred_σ, filename, n_samples=3, save_tex=save_tex)
+p3 = plot_error_histogram(y_test, y_pred_μ, filename, save_tex=save_tex)
 
 
 
@@ -172,40 +180,7 @@ end
 
 
 
-function gp_model_stats(gp_model)
-    
-    constant_values = Float64[]
-    length_scales = Float64[]
-    
-    for estimator in gp_model.estimators_
-        kernel_params = estimator.kernel_.get_params()
-        push!(constant_values, kernel_params["k1__constant_value"])
-    
-        length_scale = kernel_params["k2__length_scale"]
-        if length(length_scale) > 1
-            append!(length_scales, length_scale)
-        else
-            push!(length_scales, length_scale)
-        end
-    end
-    
-    # print statistics
-    println("\nKernel parameter statistics:")
-    println("Constant value (k1): mean = $(round(mean(constant_values), digits=4)), " *
-            "std = $(round(std(constant_values), digits=4)), " *
-            "min = $(round(minimum(constant_values), digits=4)), " *
-            "max = $(round(maximum(constant_values), digits=4))")
-    println("Length scale (k2): mean = $(round(mean(length_scales), digits=4)), " *
-            "std = $(round(std(length_scales), digits=4)), " *
-            "min = $(round(minimum(length_scales), digits=4)), " *
-            "max = $(round(maximum(length_scales), digits=4))")
-    
-    return constant_values, length_scales
-end
-
-
-
-function plot_parity(y_true, y_pred)
+function plot_parity(y_true, y_pred, filename; save_tex=false)
 
     y_true_flat = vec(y_true)
     y_pred_flat = vec(y_pred)
@@ -217,36 +192,82 @@ function plot_parity(y_true, y_pred)
         ylabel="GP",
         title=selected_sensor,
         legend=false,
-        markersize=6,
+        markersize=5,
         markercolor=wong_colors[3],
         markerstrokewidth=0,
-        markeralpha=0.6,
+        markeralpha=0.7,
         # aspect_ratio=:equal,
         size=(450, 400),
         left_margin=6mm,
         right_margin=6mm,
         bottom_margin=6mm,
         top_margin=6mm,
-        xtickfont=14,
-        ytickfont=14,
-        xguidefont=16,
-        yguidefont=16,
-        titlefont=16,
+        xtickfont=12,
+        ytickfont=12,
+        xguidefont=14,
+        yguidefont=14,
+        titlefont=14,
         grid=false,
         xlims=(0, max_val),
         ylims=(0, max_val),
-        )
+    )
     
     plot!(p, [0.0, max_val], [0.0, max_val],
           linestyle=:dash,
           color=:black,
           linewidth=2)
     
+    if save_tex
+        try
+            pgfplotsx()
+            
+            p_pgf = scatter(y_true_flat, y_pred_flat,
+                xlabel="EPANET",
+                ylabel="GP",
+                title=selected_sensor,
+                legend=false,
+                markersize=5,
+                markercolor=wong_colors[3],
+                markerstrokewidth=0,
+                markeralpha=0.7,
+                size=(450, 400),
+                left_margin=6mm,
+                right_margin=6mm,
+                bottom_margin=6mm,
+                top_margin=6mm,
+                xtickfont=12,
+                ytickfont=12,
+                xguidefont=14,
+                yguidefont=14,
+                titlefont=14,
+                grid=false,
+                xlims=(0, max_val),
+                ylims=(0, max_val),
+            )
+            
+            plot!(p_pgf, [0.0, max_val], [0.0, max_val],
+                  linestyle=:dash,
+                  color=:black,
+                  linewidth=2)
+            
+            output_path = RESULTS_PATH * "/wq/gp_models/"
+            savefig(p_pgf, output_path * filename * "_parity.tex")
+            gr()
+            println("Plot saved as $filename")
+            
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+        end
+    end
+    
     return p
 end
 
 
-function plot_time_series(y_true, y_pred, y_std; n_samples=3)
+
+function plot_time_series(y_true, y_pred, y_std, filename; n_samples=3, save_tex=false)
+
     n_to_plot = min(n_samples, size(y_true, 1))
     sample_indices = 1:n_to_plot
     
@@ -254,19 +275,19 @@ function plot_time_series(y_true, y_pred, y_std; n_samples=3)
         xlabel="Time step",
         ylabel="Chlorine [mg/L]",
         title=selected_sensor,
-        size=(750, 400),
+        size=(800, 400),
         left_margin=6mm,
         right_margin=6mm,
         bottom_margin=6mm,
         top_margin=6mm,
-        xtickfont=14,
-        ytickfont=14,
-        xguidefont=16,
-        yguidefont=16,
-        titlefont=16,
+        xtickfont=12,
+        ytickfont=12,
+        xguidefont=14,
+        yguidefont=14,
+        titlefont=14,
         grid=false,
         legend=:outertopright,
-        legendfont=14,
+        legendfont=12,
         foreground_color_legend=nothing
     )
     
@@ -287,10 +308,65 @@ function plot_time_series(y_true, y_pred, y_std; n_samples=3)
         )
     end
     
+    if save_tex       
+        try
+            pgfplotsx()
+            
+            p_pgf = plot(
+                xlabel="Time step",
+                ylabel="Chlorine [mg/L]",
+                title=selected_sensor,
+                size=(800, 400),
+                left_margin=6mm,
+                right_margin=6mm,
+                bottom_margin=6mm,
+                top_margin=6mm,
+                xtickfont=12,
+                ytickfont=12,
+                xguidefont=14,
+                yguidefont=14,
+                titlefont=14,
+                grid=false,
+                legend=:outertopright,
+                legendfont=12,
+                foreground_color_legend=nothing
+            )
+            
+            for (i, idx) in enumerate(sample_indices)
+                color_idx = mod1(i, length(wong_colors))
+                plot!(p_pgf, 1:size(y_true, 2), y_true[idx, :],
+                    label="EPANET-$(idx)",
+                    linewidth=2,
+                    color=wong_colors[color_idx]
+                )
+                plot!(p_pgf, 1:size(y_pred, 2), y_pred[idx, :],
+                    ribbon=1.96*y_std[idx, :],
+                    label="GP-$(idx)",
+                    linewidth=2,
+                    linestyle=:dash,
+                    color=wong_colors[color_idx],
+                    fillalpha=0.15
+                )
+            end
+            
+            output_path = RESULTS_PATH * "/wq/gp_models/"
+            savefig(p_pgf, output_path * filename * "_timeseries.tex")
+            gr()
+            println("Plot saved as $filename")
+            
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+        end
+    end
+    
     return p
 end
 
-function plot_error_histogram(y_true, y_pred)
+
+
+function plot_error_histogram(y_true, y_pred, filename; save_tex=false)
+
     errors = vec(y_true - y_pred)
     
     p = histogram(errors,
@@ -306,14 +382,50 @@ function plot_error_histogram(y_true, y_pred)
         right_margin=8mm,
         bottom_margin=2mm,
         top_margin=2mm,
-        xtickfont=14,
-        ytickfont=14,
-        xguidefont=16,
-        yguidefont=16
+        xtickfont=12,
+        ytickfont=12,
+        xguidefont=14,
+        yguidefont=14
     )
+    
+    if save_tex 
+        try
+            pgfplotsx()
+            
+            p_pgf = histogram(errors,
+                bins=30,
+                xlabel="Error [mg/L]",
+                ylabel="Frequency",
+                title=selected_sensor,
+                legend=false,
+                alpha=0.7,
+                color=wong_colors[3],
+                size=(525, 400),
+                left_margin=2mm,
+                right_margin=8mm,
+                bottom_margin=2mm,
+                top_margin=2mm,
+                xtickfont=12,
+                ytickfont=12,
+                xguidefont=14,
+                yguidefont=14
+            )
+            
+            output_path = RESULTS_PATH * "/wq/gp_models/"
+            savefig(p_pgf, output_path * filename * "_error_hist.tex")
+            gr()
+            println("Plot saved as $filename")
+            
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+        end
+    end
     
     return p
 end
+
+
 
 
 function gp_model_x_valid(θ_samples, y, grouping, selected_sensor; kernel_type="RBF", save=true, cv_folds=5)
@@ -479,7 +591,7 @@ function gp_model_x_valid(θ_samples, y, grouping, selected_sensor; kernel_type=
     # save results
     if save
         output_path = RESULTS_PATH * "/wq/gp_models/"
-        filename = joinpath(output_path, "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_sensor_$(selected_sensor).jld2")
+        filename = joinpath(output_path, "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor).jld2")
         JLD2.save(filename, "gp_model", results_dict)
     end
 
@@ -490,18 +602,12 @@ end
 
 function test_expanded_θ(gp_model, scaler, n_expand, σ_mult, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in)
 
-    n_params = size(θ_samples, 2)
     n_output = size(y, 2)
     θ_means = vec(mean(θ_samples, dims=1))
     θ_stds = vec(std(θ_samples, dims=1))
 
-    x_test = zeros(n_expand, n_params)
-    for i in 1:n_expand
-        for j in 1:n_params
-            x_test[i, j] = θ_means[j] + randn() * θ_stds[j] * σ_mult
-        end
-    end
-    x_test[x_test .> 0] .= -1e-6
+    # sample extended θ
+    x_test = latin_hypercube_sampling(θ_means, θ_stds, n_expand, σ_mult)
     x_test_scaled = scaler.transform(x_test)
 
     # run forward model
@@ -572,5 +678,23 @@ function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="ch
 
     return y_df
 
+end
+
+
+
+function latin_hypercube_sampling(θ_means, θ_stds, n_expand, σ_mult)
+
+    n_params = length(θ_means)
+    result = zeros(n_expand, n_params)
+    
+    for j in 1:n_params
+        column = [(i - 0.5 + rand())/n_expand for i in 1:n_expand]
+        shuffle!(column)
+        min_val = θ_means[j] - σ_mult * θ_stds[j] * 3
+        max_val = θ_means[j] + σ_mult * θ_stds[j] * 3
+        result[:, j] = min.(min_val .+ column .* (max_val - min_val), -1e-4)
+    end
+    
+    return result
 end
 
