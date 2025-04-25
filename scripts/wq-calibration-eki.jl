@@ -168,6 +168,11 @@ eki_results = summarize_eki_results(θ_final, wn_train, datetime_train, exclude_
 
 
 
+### 9. run test data ###
+# insert code here...
+
+
+
 
 
 
