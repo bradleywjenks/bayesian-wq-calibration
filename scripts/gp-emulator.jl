@@ -1,6 +1,5 @@
 """
-this script creates a gaussian process (gp) emulator based on the ensemble from the eki calibration.
-the following steps are performed:
+This script creates a gaussian process (gp) emulator based on the final ensemble from the eki calibration stage. The following steps are performed:
     1. load parameter-output pairs from eki calibration (Done)
     2. extract parameter-output pairs from eki ensemble (Done)
     3. train and test gp model for selected sensors using k-folds cross validation (DONE)
@@ -33,6 +32,7 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
+pickle = pyimport("pickle")
 data = pyimport("bayesian_wq_calibration.data")
 epanet = pyimport("bayesian_wq_calibration.epanet")
 
@@ -73,7 +73,7 @@ eki_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s
 eki_results = JLD2.load(eki_results_path * eki_filename, "eki_results")
 
 bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
-selected_sensor = bwfl_ids[2]
+selected_sensor = bwfl_ids[1]
 
 # operational data
 flow_df = CSV.read(TIMESERIES_PATH * "/processed/" * padded_period * "-flow.csv", DataFrame); flow_df.datetime = DateTime.(flow_df.datetime, dateformat"yyyy-mm-dd HH:MM:SS")
@@ -124,7 +124,7 @@ y_pred_σ = test_results["y_pred_σ"]
 
 filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)"
 
-θ_n = 1
+θ_n = 3
 save_tex = true
 begin
     p0 = histogram(x_test[:, θ_n], alpha=0.5, color=wong_colors[2], label="Extended θ", xlabel="θ", ylabel="Frequency", grid=false, size=(750, 400), left_margin=4mm, right_margin=8mm, bottom_margin=4mm, top_margin=4mm, xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legend=:outertopright, legendfont=12, foreground_color_legend=nothing)
@@ -590,9 +590,7 @@ function gp_model_x_valid(θ_samples, y, grouping, selected_sensor; kernel_type=
 
     # save results
     if save
-        output_path = RESULTS_PATH * "/wq/gp_models/"
-        filename = joinpath(output_path, "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor).jld2")
-        JLD2.save(filename, "gp_model", results_dict)
+        save_gp_model(results_dict["gp_model"], results_dict["scaler"], results_dict)
     end
 
     return results_dict
@@ -709,6 +707,28 @@ function latin_hypercube_sampling(θ_means, θ_stds, n_expand; dist_type="unifor
     end
 
     return result
+end
+
+
+
+function save_gp_model(model, scaler, results_dict)
+
+    output_path = RESULTS_PATH * "wq/gp_models/"
+    base_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)"
+
+    # pickle files
+    open(output_path * base_filename * "_model.pkl", "w") do f
+        pickle.dump(model, f)
+    end
+    open(output_path * base_filename * "_scaler.pkl", "w") do f
+        pickle.dump(scaler, f)
+    end
+    
+    # JLD2 files
+    JLD2.save(output_path * filename * ".jld2", "gp_results", results_dict)
+
+    println("Saved GP model for $selected_sensor using pickle and JLD2.")
+
 end
 
 
