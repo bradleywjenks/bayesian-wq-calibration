@@ -1,8 +1,8 @@
 """
 This script performs MCMC sampling using the GP emulator trained from the ensemble Kalman inversion calibration. The following steps are performed:
     1. load eki results, GP model, and operational data (DONE)
-    2. define prior, likelihood, and posterior functions
-    3. implement Metropolis-Hastings MCMC sampler
+    2. define (a) prior, (b) likelihood, and (c) posterior functions (DONE)
+    3. create Metropolis-Hastings MCMC algorithm
     4. run MCMC to sample from posterior distribution
     5. analyze and visualize results
 """
@@ -54,7 +54,7 @@ wong_colors = [
 
 ########## MAIN SCRIPT ##########
 
-### 1. load eki results, GP model, and operational data ###
+### 1. load eki results, GP model, operational data, and other MCMC parameters ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
 grouping = "material" # "single", "material", "material-age", "material-age-velocity"
@@ -101,13 +101,8 @@ y_df = subset(wq_df,
     :datetime => ByRow(in(Set(eki_results[1]["y_df"].datetime)))
 )
 
-
-
-
-
-### 2a. define prior function ###
-
 # bulk parameter
+n_ensemble = length(eki_results)
 θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
 θ_b = mean(θ_samples[:, 1])
 
@@ -124,10 +119,15 @@ else
     error("Unsupported grouping: $grouping")
 end
 
-    
-function log_prior_(θ)
 
-    log_prob = 0.0
+
+
+
+### 2a. define prior function ###
+
+function log_prior(θ)
+
+    lp = 0.0
     
     # θ_b
     if θ[1] > 0 || θ[1] < -Inf
@@ -136,25 +136,104 @@ function log_prior_(θ)
     bulk_mean = θ_b
     bulk_std = abs(θ_b * δ_b)
     bulk_prior = Normal(bulk_mean, bulk_std)
-    log_prob += logpdf(bulk_prior, θ[1])
+    lp += logpdf(bulk_prior, θ[1])
 
     # θ_w
     for (i, (lb, ub)) in enumerate(zip(θ_w_lb, θ_w_ub))
         if θ[i+1] < lb || θ[i+1] > ub
             return -1e5
         end
-        log_prob += -log(ub - lb)
+        lp += -log(ub - lb)
     end
     
-    return log_prob
+    return lp
 end
-
-
-
-θ = [-0.55, -0.08, -0.15]
-lp = log_prior_(θ)
 
 
 
 
 ### 2b. define likelihood function ###
+    
+function log_likelihood(θ, gp_model, scaler, y_obs)
+
+    θ_scaled = scaler.transform(reshape(θ, 1, length(θ)))
+    y_pred = vec(gp_model.predict(θ_scaled))
+    
+    residual = y_obs - y_pred
+    variance = (y_obs .* δ_s).^2
+    
+    # compute log likelihood as sum of individual components
+    # note: we're skipping the constant terms since they don't affect MCMC results
+    ll = -0.5 * sum((residual.^2) ./ variance)
+
+    return ll
+end
+
+
+
+
+### 2c. define posterior function ###
+
+function log_posterior(θ)
+
+    # log prior
+    lp = log_prior(θ)
+    if lp < -1e4
+        return lp
+    end
+    
+    # log likelihood
+    ll = 0.0
+    for sensor ∈ bwfl_ids
+        if haskey(gp_dict, sensor)
+            gp_model = gp_dict[sensor]["gp_model"]
+            scaler = gp_dict[sensor]["scaler"]
+            y_obs = subset(y_df, :bwfl_id => ByRow(==(sensor)))[!, :mean]
+            ll += log_likelihood(θ, gp_model, scaler, y_obs)
+        end
+    end
+    
+    return lp + ll
+end
+
+# # test
+# θ = [-0.66, -0.1, -0.01]
+# lprior = log_prior(θ)
+# lpost = log_posterior(θ)
+
+
+
+
+### 3. create metropolis-hastings MCMC algorithm ###
+
+function metropolis_hastings_mcmc(θ_init; n_samples=10000, proposal_std=0.1, rng=Random.GLOBAL_RNG)
+
+    n_params = length(θ_init)
+    samples = zeros(n_samples, n_params)
+    log_posteriors = zeros(n_samples)
+
+    θ_current = copy(θ_init)
+    logp_current = log_posterior(θ_current)
+    accepts = 0
+
+    for i in 1:n_samples
+
+        θ_proposal = θ_current .+ randn(rng, n_params) .* proposal_std
+        logp_proposal = log_posterior(θ_proposal)
+        log_accept_ratio = logp_proposal - logp_current
+
+        if log(rand(rng)) < log_accept_ratio
+            θ_current = θ_proposal
+            logp_current = logp_proposal
+            accepts += 1
+        end
+
+        samples[i, :] = θ_current
+        log_posteriors[i] = logp_current
+
+    end
+
+    return samples, log_posteriors, accepts
+end
+
+
