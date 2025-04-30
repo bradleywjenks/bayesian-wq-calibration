@@ -271,7 +271,7 @@ end
 ### 4. run MCMC algorithm ###
 
 begin
-    scaling_factors = [0.1, 0.2, 0.2]
+    scaling_factors = [0.25, 0.5, 0.5]
     parallel = true
     n_samples = 50000
     θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
@@ -281,7 +281,7 @@ end
 
 mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel)
 
-chain = 2
+chain = 1
 histogram(mcmc_results["samples"][:, 1, chain], bins=50, xlabel="θ_b", ylabel="Frequency", label="Chain $(chain)")
 histogram(mcmc_results["samples"][:, 2, chain], bins=50, xlabel="θ_w1", ylabel="Frequency", label="Chain $(chain)")
 histogram(mcmc_results["samples"][:, 3, chain], bins=50, xlabel="θ_w2", ylabel="Frequency", label="Chain $(chain)")
