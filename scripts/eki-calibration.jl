@@ -113,11 +113,11 @@ grouping = "material" # "single", "material", "material-age", "material-age-velo
 θ_w_lb, θ_w_ub = if grouping == "single"
     ([-1.0], [0.0])  # G1: all pipes
 elseif grouping == "material"
-    ([-1.0, -0.15], [0.0, 0.0])  # G1: metallic, G2: cement + plastic
+    ([-1.0, -0.5], [0.0, 0.0])  # G1: metallic, G2: cement + plastic
 elseif grouping == "material-age"
-    ([-1.0, -1.0, -0.15], [0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age, G2: metallic + ≤ mean pipe age, G3: cement + plastic
+    ([-1.0, -1.0, -0.5], [0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age, G2: metallic + ≤ mean pipe age, G3: cement + plastic
 elseif grouping == "material-age-velocity"
-    ([-1.0, -1.0, -1.0, -1.0, -0.15], [0.0, 0.0, 0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age + ≤ mean velocity, G2: metallic + > mean pipe age + > mean velocity, G3: metallic + ≤ mean pipe age + ≤ mean velocity, G4: metallic + ≤ mean pipe age + > mean velocity, G5: cement + plastic
+    ([-1.0, -1.0, -1.0, -1.0, -0.5], [0.0, 0.0, 0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age + ≤ mean velocity, G2: metallic + > mean pipe age + > mean velocity, G3: metallic + ≤ mean pipe age + ≤ mean velocity, G4: metallic + ≤ mean pipe age + > mean velocity, G5: cement + plastic
 else
     error("Unsupported grouping: $grouping")
 end
@@ -159,7 +159,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 ### 7. results plotting ###
 p2a, p2b, p2c = plot_eki_progress(stats; save_tex=true)
-p3 = plot_parameter_distribution(θ_init, θ_final, 3, 3; save_tex=true)
+p3 = plot_parameter_distribution(θ_init, θ_final, 1, 1; save_tex=true)
 
 
 
