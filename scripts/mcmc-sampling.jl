@@ -294,10 +294,19 @@ r_hat = assess_mcmc_convergence(mcmc_results)
 
 
 
+### 5. results plotting ###
+param = 1
+p1 = plot_trace(mcmc_results, param)
+p2 = plot_cdf(mcmc_results, param)
 
 
 
-########## OTHER FUNCTIONS ##########
+
+
+
+
+
+########## FUNCTIONS ##########
 
 function assess_mcmc_convergence(mcmc_results)
 
@@ -351,4 +360,77 @@ function assess_mcmc_convergence(mcmc_results)
     end
     
     return r_hat
+end
+
+
+function plot_trace(mcmc_results, param_index; param_names=nothing)
+    samples = mcmc_results["samples"]
+    n_samples, n_params, n_chains = size(samples)
+    
+    if param_index < 1 || param_index > n_params
+        error("Parameter index must be between 1 and $n_params")
+    end
+    
+    base_color = wong_colors[6]
+    colors = [wong_colors[1], wong_colors[2], wong_colors[3], wong_colors[4]]
+    alphas = [0.2, 0.45, 0.7, 0.95] 
+    labels = ["chain 1", "chain 2", "chain 3", "chain 4"]
+    
+    # plot attributes
+    plot_kwargs = (
+        left_margin=6mm, right_margin=6mm, bottom_margin=6mm, top_margin=6mm,
+        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14,
+        grid=false, legendfont=12, foreground_color_legend=nothing
+    )
+    
+    name = isnothing(param_names) ? (param_index == 1 ? "θ_b" : "θ_w$(param_index - 1)") : param_names[param_index]
+    
+    # trace plot
+    plt = plot(xlabel="Sample", ylabel=name, legend=:outertopright; plot_kwargs...)
+    for c in 1:n_chains
+        plot!(plt, samples[:, param_index, c], 
+              color=base_color, 
+              alpha=alphas[c], 
+              label=labels[c],
+              linewidth=1)
+    end
+
+    return plt
+end
+
+function plot_cdf(mcmc_results, param_index; param_names=nothing)
+    samples = mcmc_results["samples"]
+    n_samples, n_params, n_chains = size(samples)
+    
+    if param_index < 1 || param_index > n_params
+        error("Parameter index must be between 1 and $n_params")
+    end
+    
+    base_color = wong_colors[6]
+    colors = [wong_colors[1], wong_colors[2], wong_colors[3], wong_colors[4]]
+    alphas = [0.2, 0.45, 0.7, 0.95] 
+    labels = ["chain 1", "chain 2", "chain 3", "chain 4"]
+    
+    # plot attributes
+    plot_kwargs = (
+        left_margin=6mm, right_margin=6mm, bottom_margin=6mm, top_margin=6mm,
+        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14,
+        grid=false, legendfont=12, foreground_color_legend=nothing
+    )
+    
+    name = isnothing(param_names) ? (param_index == 1 ? "θ_b" : "θ_w$(param_index - 1)") : param_names[param_index]
+    
+    # cdf plot
+    plt = plot(xlabel=name, ylabel="CDF", legend=:outertopright; plot_kwargs...)
+    for c in 1:n_chains
+        sorted_samples = sort(samples[:, param_index, c])
+        cdf_values = collect(1:length(sorted_samples)) ./ length(sorted_samples)
+        plot!(plt, sorted_samples, cdf_values, 
+              color=base_color, 
+              alpha=alphas[c], 
+              label=labels[c],
+              linewidth=1) 
+    end
+
+    return plt
 end
