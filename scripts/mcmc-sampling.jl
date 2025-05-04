@@ -23,6 +23,8 @@ using JLD2
 using LaTeXStrings
 using ScikitLearn
 using PyCall
+using Printf
+using KernelDensity
 using ProgressMeter
 using Distributed
 addprocs(4)
@@ -295,9 +297,26 @@ r_hat = assess_mcmc_convergence(mcmc_results)
 
 
 ### 5. results plotting ###
-param = 1
-p1 = plot_trace(mcmc_results, param)
-p2 = plot_cdf(mcmc_results, param)
+param_1 = 2
+param_2 = 3
+save_tex = true
+contours = false
+
+p1a = plot_trace(mcmc_results, param_1, save_tex=save_tex)
+if param_1 == 1
+    p1b = plot_cdf(mcmc_results, param_1; θ_b=θ_b, δ_b=δ_b, show_prior=true, save_tex=save_tex)
+    display(p1b)
+    p2a = plot_param_dist(mcmc_results, param_1, param_2, save_tex=save_tex, contours=contours, θ_b=θ_b, δ_b=δ_b, show_prior=true)
+else
+    p1b = plot_cdf(mcmc_results, param_1; θ_b=θ_b, δ_b=δ_b, show_prior=true, θ_w_lb=θ_w_lb[param_1-1], θ_w_ub=θ_w_ub[param_1-1], save_tex=save_tex)
+    display(p1b)
+    p2a = plot_param_dist(mcmc_results, param_1, param_2, save_tex=save_tex, contours=contours, θ_b=θ_b, δ_b=δ_b, show_prior=true, θ_w_lb=θ_w_lb[param_1-1], θ_w_ub=θ_w_ub[param_1-1])
+end
+
+
+
+
+
 
 
 
@@ -363,74 +382,387 @@ function assess_mcmc_convergence(mcmc_results)
 end
 
 
-function plot_trace(mcmc_results, param_index; param_names=nothing)
+function plot_trace(mcmc_results, param_idx; param_names=nothing, save_tex=false, filename=nothing)
+
     samples = mcmc_results["samples"]
     n_samples, n_params, n_chains = size(samples)
     
-    if param_index < 1 || param_index > n_params
+    if param_idx < 1 || param_idx > n_params
         error("Parameter index must be between 1 and $n_params")
     end
-    
-    base_color = wong_colors[6]
-    colors = [wong_colors[1], wong_colors[2], wong_colors[3], wong_colors[4]]
-    alphas = [0.2, 0.45, 0.7, 0.95] 
+
+    colors = wong_colors[[1, 4, 3, 6]]
+    alphas = [0.75, 0.75, 0.75, 0.75]  
     labels = ["chain 1", "chain 2", "chain 3", "chain 4"]
     
     # plot attributes
-    plot_kwargs = (
-        left_margin=6mm, right_margin=6mm, bottom_margin=6mm, top_margin=6mm,
-        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14,
-        grid=false, legendfont=12, foreground_color_legend=nothing
-    )
+    plot_kwargs = (left_margin=4mm, right_margin=4mm, bottom_margin=4mm, top_margin=2mm, 
+                  xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14, 
+                  grid=false, legendfont=12, foreground_color_legend=nothing, 
+                  size=(600, 400), xformatter=x -> @sprintf("%.0f", x))
     
-    name = isnothing(param_names) ? (param_index == 1 ? "θ_b" : "θ_w$(param_index - 1)") : param_names[param_index]
+    if isnothing(param_names)
+        name = param_idx == 1 ? L"\theta_b" : L"\theta_w_{%$(param_idx-1)}"
+    else
+        name = param_names[param_idx]
+    end
     
     # trace plot
     plt = plot(xlabel="Sample", ylabel=name, legend=:outertopright; plot_kwargs...)
     for c in 1:n_chains
-        plot!(plt, samples[:, param_index, c], 
-              color=base_color, 
-              alpha=alphas[c], 
-              label=labels[c],
-              linewidth=1)
+        plot!(plt, samples[:, param_idx, c], color=colors[c], alpha=alphas[c], label=labels[c], linewidth=1.5)
+    end
+
+    # save as TeX file
+    if save_tex
+        if isnothing(filename)
+            param_name = param_idx == 1 ? "θb" : "θw_$(param_idx-1)"
+            filename = "mcmc_trace_$(param_name).tex"
+        end
+        
+        try
+            pgfplotsx()
+            
+            p_pgf = plot(xlabel="Sample", ylabel=name, legend=:outertopright, 
+                        left_margin=4mm, right_margin=4mm, bottom_margin=4mm, top_margin=2mm, 
+                        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14, 
+                        grid=false, legendfont=12, foreground_color_legend=nothing, 
+                        size=(600, 400), xformatter=x -> @sprintf("%.0f", x))
+            
+            for c in 1:n_chains
+                plot!(p_pgf, samples[:, param_idx, c], color=colors[c], alpha=alphas[c], 
+                      label=labels[c], linewidth=1.5)
+            end
+            
+            output_path = RESULTS_PATH * "wq/posteriors/"
+            savefig(p_pgf, output_path * filename)
+            gr()
+            println("Plot saved as $filename")
+            
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+        end
     end
 
     return plt
 end
 
-function plot_cdf(mcmc_results, param_index; param_names=nothing)
+
+function plot_cdf(mcmc_results, param_idx; param_names=nothing, θ_b=0.5, δ_b=0.1, show_prior=true, θ_w_lb=nothing, θ_w_ub=nothing, save_tex=false, filename=nothing)
+
     samples = mcmc_results["samples"]
     n_samples, n_params, n_chains = size(samples)
-    
-    if param_index < 1 || param_index > n_params
+
+    if param_idx < 1 || param_idx > n_params
         error("Parameter index must be between 1 and $n_params")
     end
-    
-    base_color = wong_colors[6]
-    colors = [wong_colors[1], wong_colors[2], wong_colors[3], wong_colors[4]]
-    alphas = [0.2, 0.45, 0.7, 0.95] 
+
+    colors = wong_colors[[1, 4, 3, 6]]
+    alphas = [0.75, 0.75, 0.75, 0.75] 
     labels = ["chain 1", "chain 2", "chain 3", "chain 4"]
-    
+
     # plot attributes
-    plot_kwargs = (
-        left_margin=6mm, right_margin=6mm, bottom_margin=6mm, top_margin=6mm,
-        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14,
-        grid=false, legendfont=12, foreground_color_legend=nothing
-    )
-    
-    name = isnothing(param_names) ? (param_index == 1 ? "θ_b" : "θ_w$(param_index - 1)") : param_names[param_index]
-    
+    plot_kwargs = (left_margin=4mm, right_margin=4mm, bottom_margin=4mm, top_margin=2mm, 
+        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14, 
+        grid=false, legendfont=12, foreground_color_legend=nothing, 
+        size=(600, 400), xformatter=x -> @sprintf("%.2f", x), 
+        yformatter=y -> @sprintf("%.1f", y))
+
+    if isnothing(param_names)
+        name = param_idx == 1 ? L"\theta_b" : L"\theta_w_{%$(param_idx-1)}"
+    else
+        name = param_names[param_idx]
+    end
+
     # cdf plot
-    plt = plot(xlabel=name, ylabel="CDF", legend=:outertopright; plot_kwargs...)
+    plt = plot(xlabel=name, ylabel="Cumulative density", legend=:outertopright; plot_kwargs...)
+
     for c in 1:n_chains
-        sorted_samples = sort(samples[:, param_index, c])
+        sorted_samples = sort(samples[:, param_idx, c])
         cdf_values = collect(1:length(sorted_samples)) ./ length(sorted_samples)
-        plot!(plt, sorted_samples, cdf_values, 
-              color=base_color, 
-              alpha=alphas[c], 
-              label=labels[c],
-              linewidth=1) 
+        plot!(plt, sorted_samples, cdf_values, color=colors[c], alpha=alphas[c], label=labels[c], linewidth=1.5) 
+    end
+
+    # add prior
+    if show_prior
+        all_samples = vcat([samples[:, param_idx, c] for c in 1:n_chains]...)
+        min_x = minimum(all_samples)
+        max_x = maximum(all_samples)
+        x_prior = range(min_x, max_x, length=500)
+
+        if param_idx == 1
+            sd = abs(δ_b * θ_b)
+            prior_dist = Normal(θ_b, sd)
+            prior_cdf = cdf.(prior_dist, x_prior)
+        else
+            if isnothing(θ_w_lb) || isnothing(θ_w_ub)
+                θ_w_lb = min_x
+                θ_w_ub = max_x
+            end
+            prior_dist = Uniform(θ_w_lb, θ_w_ub)
+            prior_cdf = cdf.(prior_dist, x_prior)
+        end
+
+        plot!(plt, x_prior, prior_cdf, color=:black, linestyle=:dash, linewidth=1.5, label="prior", alpha=1.0)
+    end
+
+    # save as TeX file
+    if save_tex
+        if isnothing(filename)
+            param_name = param_idx == 1 ? "θb" : "θw_$(param_idx-1)"
+            filename = "mcmc_cdf_$(param_name).tex"
+        end
+
+        try
+            pgfplotsx()
+
+            p_pgf = plot(xlabel=name, ylabel="Cumulative density", legend=:outertopright,
+                    left_margin=4mm, right_margin=4mm, bottom_margin=4mm, top_margin=2mm, 
+                    xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14, 
+                    grid=false, legendfont=12, foreground_color_legend=nothing, 
+                    size=(600, 400), xformatter=x -> @sprintf("%.2f", x), 
+                    yformatter=y -> @sprintf("%.1f", y))
+
+            for c in 1:n_chains
+                sorted_samples = sort(samples[:, param_idx, c])
+                cdf_values = collect(1:length(sorted_samples)) ./ length(sorted_samples)
+                plot!(p_pgf, sorted_samples, cdf_values, color=colors[c], alpha=alphas[c], label=labels[c], linewidth=1.5) 
+            end
+
+            # add prior
+            if show_prior
+                all_samples = vcat([samples[:, param_idx, c] for c in 1:n_chains]...)
+                min_x = minimum(all_samples)
+                max_x = maximum(all_samples)
+                x_prior = range(min_x, max_x, length=500)
+
+            if param_idx == 1
+                sd = abs(δ_b * θ_b)
+                prior_dist = Normal(θ_b, sd)
+                prior_cdf = cdf.(prior_dist, x_prior)
+            else
+                if isnothing(θ_w_lb) || isnothing(θ_w_ub)
+                    θ_w_lb = min_x
+                    θ_w_ub = max_x
+                end
+                prior_dist = Uniform(θ_w_lb, θ_w_ub)
+                prior_cdf = cdf.(prior_dist, x_prior)
+            end
+
+            plot!(p_pgf, x_prior, prior_cdf, color=:black, linestyle=:dash, 
+                    linewidth=1.5, label="prior", alpha=1.0)
+            end
+
+            output_path = RESULTS_PATH * "wq/posteriors/"
+            savefig(p_pgf, output_path * filename)
+            gr()
+            println("Plot saved as $filename")
+
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+        end
     end
 
     return plt
+end
+
+
+
+function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filename=nothing, contours=false, use_pdf=true, θ_b=0.5, δ_b=0.1, show_prior=true, θ_w_lb=nothing, θ_w_ub=nothing)
+
+    samples = mcmc_results["samples"]
+    n_samples, n_params, n_chains = size(samples)
+    
+    if param_1 < 1 || param_1 > n_params || param_2 < 1 || param_2 > n_params
+        error("Parameter indices must be between 1 and $n_params")
+    end
+    
+    if param_1 == 1
+        label_1 = L"\theta_b"
+    else
+        label_1 = L"\theta_w_{%$(param_1-1)}"
+    end
+    
+    if param_2 == 1
+        label_2 = L"\theta_b"
+    else
+        label_2 = L"\theta_w_{%$(param_2-1)}"
+    end
+
+    color = wong_colors[6]
+    
+    # combine samples from all chains
+    samples_1 = samples[:, param_1, 1]
+    x_min = floor(minimum(samples_1) * 20) / 20
+    x_max = ceil(maximum(samples_1) * 20) / 20
+    x_min = iszero(x_min) && signbit(x_min) ? 0.0 : x_min  
+    x_max = iszero(x_max) && signbit(x_max) ? 0.0 : x_max  
+    
+    samples_2 = samples[:, param_2, 1]
+    y_min = floor(minimum(samples_2) * 20) / 20
+    y_max = ceil(maximum(samples_2) * 20) / 20
+    y_min = iszero(y_min) && signbit(y_min) ? 0.0 : y_min  
+    y_max = iszero(y_max) && signbit(y_max) ? 0.0 : y_max  
+    
+    # plot attributes
+    plot_kwargs = (
+        size=(525, 400), right_margin=8mm, bottom_margin=2mm, top_margin=2mm, 
+        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legendfont=12, 
+        foreground_color_legend=nothing, grid=false
+    )
+    
+    if param_1 == param_2
+
+        bin_edges = LinRange(x_min, x_max, 31)
+        y_label = use_pdf ? "Probability density" : "Frequency"
+        normalize_option = use_pdf ? :pdf : false
+        
+        p = histogram(
+            samples_1, bins=bin_edges, color=color, alpha=0.75, xlabel=label_1, ylabel=y_label, 
+            label="posterior", legend=true, linecolor=:transparent, xlims=(x_min, x_max), 
+            normalize=normalize_option, left_margin=4mm; plot_kwargs...
+        )
+
+        if show_prior
+            x_prior = range(x_min, x_max, length=200)
+            
+            if param_1 == 1
+                sd = abs(δ_b * θ_b)
+                prior_dist = Normal(θ_b, sd)
+                prior_pdf = pdf.(prior_dist, x_prior)
+                
+                if !use_pdf
+                    max_hist_height = maximum(fit(Histogram, samples_1, bin_edges).weights)
+                    scaling_factor = max_hist_height / maximum(prior_pdf)
+                    prior_pdf = prior_pdf .* scaling_factor
+                end
+                plot!(p, x_prior, prior_pdf, 
+                      color=:black, 
+                      linestyle=:dash, 
+                      linewidth=1.5, 
+                      label="prior", 
+                      alpha=1.0)
+            else
+                if isnothing(θ_w_lb) || isnothing(θ_w_ub)
+                    θ_w_lb = x_min
+                    θ_w_ub = x_max
+                end
+                
+                prior_dist = Uniform(θ_w_lb, θ_w_ub)
+                prior_pdf = pdf.(prior_dist, x_prior)
+                plot!(p, x_prior, prior_pdf, color=:black, linestyle=:dash, linewidth=1.5, label="prior", alpha=1.0)
+            end
+        end
+    else
+        p = scatter(
+            samples_1, samples_2, markersize=4, alpha=0.6, label=false, color=color, markerstrokewidth=0, 
+            xlabel=label_1, ylabel=label_2, xlims=(x_min, x_max), ylims=(y_min, y_max), left_margin=4mm; 
+            plot_kwargs...
+        )
+        
+        if contours
+            try
+                k = kde((samples_1, samples_2))
+                x_grid = range(x_min, x_max, length=100)
+                y_grid = range(y_min, y_max, length=100)
+                z = [pdf(k, x, y) for y in y_grid, x in x_grid]
+                contour!(
+                    p, x_grid, y_grid, z, color=:white, linewidth=1.25, linestyle=:solid, 
+                    label=false, zaxis=false
+                )
+            catch e
+                @warn "Failed to create contour plot: $e"
+            end
+        end
+    end
+    
+    # save as TeX file
+    if save_tex
+        if isnothing(filename)
+            if param_1 == param_2
+                param_name = param_1 == 1 ? "θb" : "θw_$(param_1-1)"
+                filename = "mcmc_hist_$(param_name).tex"
+            else
+                param1_name = param_1 == 1 ? "θb" : "θw_$(param_1-1)"
+                param2_name = param_2 == 1 ? "θb" : "θw_$(param_2-1)"
+                filename = "mcmc_scatter_$(param1_name)_v_$(param2_name).tex"
+            end
+        end
+        
+        try
+            pgfplotsx()
+            
+            if param_1 == param_2
+
+                # histogram
+                y_label = use_pdf ? "Probability density" : "Frequency"
+                normalize_option = use_pdf ? :pdf : false
+                
+                p_pgf = histogram(
+                    samples_1, bins=bin_edges, 
+                    color=color, alpha=0.75, 
+                    xlabel=label_1, ylabel=y_label, 
+                    legend=false, linecolor=:transparent, 
+                    xlims=(x_min, x_max),
+                    normalize=normalize_option,
+                    size=(525, 400), 
+                    right_margin=8mm, bottom_margin=2mm, top_margin=2mm,
+                    left_margin=4mm,
+                    xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14,
+                    legendfont=12, foreground_color_legend=nothing, grid=false
+                )
+                
+                if show_prior
+                    x_prior = range(x_min, x_max, length=200)
+                    
+                    if param_1 == 1
+                        sd = abs(δ_b * θ_b)
+                        prior_dist = Normal(θ_b, sd)
+                        prior_pdf = pdf.(prior_dist, x_prior)
+                    else
+                        if isnothing(θ_w_lb) || isnothing(θ_w_ub)
+                            θ_w_lb = x_min
+                            θ_w_ub = x_max
+                        end
+                        prior_dist = Uniform(θ_w_lb, θ_w_ub)
+                        prior_pdf = pdf.(prior_dist, x_prior)
+                    end
+                    
+                    plot!(p_pgf, x_prior, prior_pdf, 
+                          color=:black, 
+                          linestyle=:dash, 
+                          linewidth=1.5, 
+                          label=false, 
+                          alpha=1.0)
+                end
+            else
+                # scatter plot
+                p_pgf = scatter(
+                    samples_1, samples_2, 
+                    markersize=4, alpha=0.6, label=false, 
+                    color=color, markerstrokewidth=0,
+                    xlabel=label_1, ylabel=label_2, 
+                    xlims=(x_min, x_max), ylims=(y_min, y_max),
+                    size=(525, 400), 
+                    right_margin=8mm, bottom_margin=2mm, top_margin=2mm,
+                    left_margin=4mm,
+                    xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14,
+                    legendfont=12, foreground_color_legend=nothing, grid=false
+                )
+            end
+            
+            output_path = RESULTS_PATH * "wq/posteriors/"
+            savefig(p_pgf, output_path * filename)
+            gr()
+            println("Plot saved as $filename")
+            
+        catch e
+            @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
+            gr()
+        end
+    end
+    
+    return p
 end
