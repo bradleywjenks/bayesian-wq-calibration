@@ -63,7 +63,7 @@ wong_colors = [
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material" # "single", "material", "material-age", "material-age-velocity"
+grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
 δ_s = 0.2
 δ_b = 0.025
 
@@ -73,7 +73,7 @@ eki_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s
 eki_results = JLD2.load(eki_results_path * eki_filename, "eki_results")
 
 bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
-selected_sensor = bwfl_ids[6]
+selected_sensor = bwfl_ids[4]
 
 # operational data
 flow_df = CSV.read(TIMESERIES_PATH * "/processed/" * padded_period * "-flow.csv", DataFrame); flow_df.datetime = DateTime.(flow_df.datetime, dateformat"yyyy-mm-dd HH:MM:SS")
@@ -109,7 +109,7 @@ wn = epanet.build_model(
 )
 exclude_sensors = ["BW1", "BW4", "BW7"]
 burn_in = 24 * 4
-n_expand = 100
+n_expand = 10
 lhs_dist = "uniform"
 
 test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist=lhs_dist)
@@ -598,7 +598,9 @@ end
 
 
 
-function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, selected_sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist="uniform")
+function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, selected_sensor, wn, datetime_select; 
+    exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist="uniform", save_percent=100, decimal_places=4, 
+    tolerance=0.01, save_results=true)
 
     n_output = size(y, 2)
     θ_means = vec(mean(θ_samples, dims=1))
@@ -614,7 +616,7 @@ function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, s
         y_df = forward_model(wn, x_test[i, :], grouping, datetime_select, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
         y_test[i,:] = y_df[!, Symbol(selected_sensor)]
     end
-    
+
     # run GP model
     y_pred_μ = gp_model.predict(x_test_scaled)
     y_pred_σ = zeros(size(y_test))
@@ -627,22 +629,64 @@ function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, s
         end
     end
 
-    results_dict = Dict(
-        "x_test" => x_test,
-        "y_test" => y_test,
-        "y_pred_μ" => y_pred_μ,
-        "y_pred_σ" => y_pred_σ,
-        "metrics" => Dict(
-            "rmse" => sqrt(mean_squared_error(y_test, y_pred_μ)),
-            "mae" => mean_absolute_error(y_test, y_pred_μ),
-            "maxae" => maximum(abs.(y_test - y_pred_μ)),
-            "r2" => r2_score(y_test, y_pred_μ)
-        )
+    # Calculate percent of points within tolerance (±0.01 mg/L)
+    abs_diff = abs.(y_test - y_pred_μ)
+    within_tolerance = count(abs_diff .<= tolerance) / length(abs_diff) * 100
+
+    # calculate metrics using all data
+    metrics = Dict(
+        "rmse" => round(sqrt(mean_squared_error(y_test, y_pred_μ)), digits=decimal_places),
+        "mae" => round(mean_absolute_error(y_test, y_pred_μ), digits=decimal_places),
+        "maxae" => round(maximum(abs.(y_test - y_pred_μ)), digits=decimal_places),
+        "r2" => round(r2_score(y_test, y_pred_μ), digits=decimal_places),
+        "within_$(tolerance)_mg_L" => round(within_tolerance, digits=decimal_places)
     )
 
+    # function to round array values to specified decimal places
+    function round_array(arr, digits)
+        return round.(arr, digits=digits)
+    end
+
+    # save only a random subset if save_percent < 100
+    if save_percent < 100
+        n_save = round(Int, n_expand * save_percent / 100)
+        save_indices = randperm(n_expand)[1:n_save]
+
+        results_dict = Dict(
+            "x_test" => round_array(x_test[save_indices, :], decimal_places),
+            "y_test" => round_array(y_test[save_indices, :], decimal_places),
+            "y_pred_μ" => round_array(y_pred_μ[save_indices, :], decimal_places),
+            "y_pred_σ" => round_array(y_pred_σ[save_indices, :], decimal_places),
+            "metrics" => metrics,
+            "save_percent" => save_percent
+        )
+    else
+        results_dict = Dict(
+            "x_test" => round_array(x_test, decimal_places),
+            "y_test" => round_array(y_test, decimal_places),
+            "y_pred_μ" => round_array(y_pred_μ, decimal_places),
+            "y_pred_σ" => round_array(y_pred_σ, decimal_places),
+            "metrics" => metrics,
+            "save_percent" => 100
+        )
+    end
+
+    # save results to file if requested
+    if save_results
+        save_validation_results(results_dict, data_period, grouping, δ_b, δ_s, selected_sensor)
+    end
+
     return results_dict
+end
 
-
+function save_validation_results(results_dict, data_period, grouping, δ_b, δ_s, selected_sensor)
+    output_path = RESULTS_PATH * "wq/gp_models/"
+    base_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)_validation"
+    
+    JLD2.save(output_path * base_filename * ".jld2", "test_results", results_dict)
+    
+    println("Saved validation results for $selected_sensor to $base_filename.jld2")
+    
 end
 
 
