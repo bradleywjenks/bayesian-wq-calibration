@@ -6,17 +6,16 @@ using LaTeXStrings
 
 const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/wq/gp_models/"
 data_period = 18
-grouping = "material-age"
+grouping = "single"
 δ_b = 0.025
 δ_s = 0.2
 
 bwfl_ids = ["BW2_1", "BW3", "BW5_1", "BW6", "BW9", "BW12"]
 
 function load_gp_results(data_period, grouping, sensor_id, δ_b, δ_s)
-    filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor_id).jld2"
+    filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor_id)_validation.jld2"
     try
-        results = JLD2.load(RESULTS_PATH * filename, "gp_results")
-        println(results)
+        results = JLD2.load(RESULTS_PATH * filename, "test_results")
         return results
     catch e
         @warn "Failed to load $filename: $e"
