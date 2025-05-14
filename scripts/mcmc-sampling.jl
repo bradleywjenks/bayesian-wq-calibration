@@ -111,6 +111,7 @@ y_df = subset(wq_df,
 n_ensemble = length(eki_results)
 θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
 θ_b = mean(θ_samples[:, 1])
+bulk_std = abs(θ_b * δ_b)
 
 # wall parameters
 θ_w_lb, θ_w_ub = if grouping == "single"
@@ -161,7 +162,7 @@ end
         θ_scaled = scaler.transform(reshape(θ, 1, length(θ)))
         y_pred = vec(gp_model.predict(θ_scaled))
         residual = y_obs - y_pred
-        variance = (y_obs .* $(δ_s)).^2
+        variance = (y_obs .* $(δ_s) + 0.025).^2
         return -0.5 * sum((residual.^2) ./ variance)
     end
 end
@@ -273,36 +274,36 @@ end
 ### 4. run MCMC algorithm ###
 
 begin
-    scaling_factors = [0.25, 0.5, 0.5]
+    # scaling_factors = [0.2, 0.4, 0.4, 0.4]
+    scaling_factors = [0.2, 0.4, 0.4]
     parallel = true
     n_samples = 50000
     θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
     θ_init = vec(mean(θ_samples, dims=1))
     θ_init_list = [θ_init .+ 0.01 .* randn(length(θ_init)) for _ in 1:4]
+
+    for i in 1:length(θ_init_list)
+        θ_init_list[i] = [val > 0 ? 0.0 : val for val in θ_init_list[i]]
+    end
 end
+θ_init_list
 
 mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel)
 
-chain = 1
-histogram(mcmc_results["samples"][:, 1, chain], bins=50, xlabel="θ_b", ylabel="Frequency", label="Chain $(chain)")
-histogram(mcmc_results["samples"][:, 2, chain], bins=50, xlabel="θ_w1", ylabel="Frequency", label="Chain $(chain)")
-histogram(mcmc_results["samples"][:, 3, chain], bins=50, xlabel="θ_w2", ylabel="Frequency", label="Chain $(chain)")
-plot(mcmc_results["log_posteriors"][:, chain], label="Chain $(chain)", xlabel="Sample", ylabel="Log Posterior")
-
 println(mcmc_results["acceptance_rates"])
-
 r_hat = assess_mcmc_convergence(mcmc_results)
 
 
 
 
 ### 5. results plotting ###
-param_1 = 2
+param_1 = 3
 param_2 = 3
 save_tex = true
 contours = false
+thin = 20
 
-p1a = plot_trace(mcmc_results, param_1, save_tex=save_tex)
+p1a = plot_trace(mcmc_results, param_1, save_tex=save_tex, thin=thin)
 if param_1 == 1
     p1b = plot_cdf(mcmc_results, param_1; θ_b=θ_b, δ_b=δ_b, show_prior=true, save_tex=save_tex)
     display(p1b)
@@ -312,6 +313,8 @@ else
     display(p1b)
     p2a = plot_param_dist(mcmc_results, param_1, param_2, save_tex=save_tex, contours=contours, θ_b=θ_b, δ_b=δ_b, show_prior=true, θ_w_lb=θ_w_lb[param_1-1], θ_w_ub=θ_w_ub[param_1-1])
 end
+
+export_mcmc_samples(mcmc_results, param_1, thin_to=5000)
 
 
 
@@ -382,15 +385,25 @@ function assess_mcmc_convergence(mcmc_results)
 end
 
 
-function plot_trace(mcmc_results, param_idx; param_names=nothing, save_tex=false, filename=nothing)
-
+function plot_trace(mcmc_results, param_idx; param_names=nothing, save_tex=false, filename=nothing, thin=1)
     samples = mcmc_results["samples"]
     n_samples, n_params, n_chains = size(samples)
     
     if param_idx < 1 || param_idx > n_params
         error("Parameter index must be between 1 and $n_params")
     end
-
+    
+    # Validate thinning parameter
+    if thin < 1
+        error("Thinning factor must be a positive integer")
+    end
+    
+    # Create thinned indices for samples
+    thinned_indices = 1:thin:n_samples
+    
+    # Create reindexed values (1 to length of thinned indices)
+    reindexed_values = 1:length(thinned_indices)
+    
     colors = wong_colors[[1, 4, 3, 6]]
     alphas = [0.75, 0.75, 0.75, 0.75]  
     labels = ["chain 1", "chain 2", "chain 3", "chain 4"]
@@ -399,7 +412,7 @@ function plot_trace(mcmc_results, param_idx; param_names=nothing, save_tex=false
     plot_kwargs = (left_margin=4mm, right_margin=4mm, bottom_margin=4mm, top_margin=2mm, 
                   xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14, 
                   grid=false, legendfont=12, foreground_color_legend=nothing, 
-                  size=(600, 400), xformatter=x -> @sprintf("%.0f", x))
+                  size=(600, 400), xformatter=x -> @sprintf("%.0f", x), legend=false)
     
     if isnothing(param_names)
         name = param_idx == 1 ? L"\theta_b" : L"\theta_w_{%$(param_idx-1)}"
@@ -407,10 +420,12 @@ function plot_trace(mcmc_results, param_idx; param_names=nothing, save_tex=false
         name = param_names[param_idx]
     end
     
-    # trace plot
+    # trace plot - using reindexed values for the regular plot
     plt = plot(xlabel="Sample", ylabel=name, legend=:outertopright; plot_kwargs...)
     for c in 1:n_chains
-        plot!(plt, samples[:, param_idx, c], color=colors[c], alpha=alphas[c], label=labels[c], linewidth=1.5)
+        # Use reindexed values instead of actual indices
+        plot!(plt, reindexed_values, samples[thinned_indices, param_idx, c], 
+              color=colors[c], alpha=alphas[c], label=labels[c], linewidth=1.5)
     end
 
     # save as TeX file
@@ -423,15 +438,42 @@ function plot_trace(mcmc_results, param_idx; param_names=nothing, save_tex=false
         try
             pgfplotsx()
             
-            p_pgf = plot(xlabel="Sample", ylabel=name, legend=:outertopright, 
-                        left_margin=4mm, right_margin=4mm, bottom_margin=4mm, top_margin=2mm, 
-                        xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, titlefont=14, 
-                        grid=false, legendfont=12, foreground_color_legend=nothing, 
-                        size=(600, 400), xformatter=x -> @sprintf("%.0f", x))
+            # Calculate appropriate tick positions for reindexed data
+            n_thinned = length(reindexed_values)
+            tick_interval = ceil(Int, n_thinned / 5)  # Create ~5 ticks
+            tick_positions = 0:tick_interval:n_thinned
+            
+            # Scale factor for display
+            scale_factor = 1000  # To display as thousands
+            
+            p_pgf = plot(
+                xlabel="Sample", 
+                ylabel=name, 
+                legend=:outertopright, 
+                left_margin=4mm, 
+                right_margin=4mm, 
+                bottom_margin=4mm, 
+                top_margin=2mm,
+                xticks=tick_positions,  # Use calculated tick positions
+                xformatter=x -> @sprintf("%.1f", x/scale_factor),  # Format as thousands
+                xtickfont=12, 
+                ytickfont=12, 
+                xguidefont=14, 
+                yguidefont=14, 
+                titlefont=14, 
+                grid=false, 
+                legendfont=12, 
+                foreground_color_legend=nothing, 
+                size=(600, 400)
+            )
+            
+            # Add notation for thousands
+            plot!(p_pgf, xlabel="Sample ⋅ 10³")
             
             for c in 1:n_chains
-                plot!(p_pgf, samples[:, param_idx, c], color=colors[c], alpha=alphas[c], 
-                      label=labels[c], linewidth=1.5)
+                # Use the reindexed values for PGFPlots output
+                plot!(p_pgf, reindexed_values, samples[thinned_indices, param_idx, c], 
+                      color=colors[c], alpha=alphas[c], label=labels[c], linewidth=1.5)
             end
             
             output_path = RESULTS_PATH * "wq/posteriors/"
@@ -525,33 +567,51 @@ function plot_cdf(mcmc_results, param_idx; param_names=nothing, θ_b=0.5, δ_b=0
                     yformatter=y -> @sprintf("%.1f", y))
 
             for c in 1:n_chains
+                # Original samples
                 sorted_samples = sort(samples[:, param_idx, c])
                 cdf_values = collect(1:length(sorted_samples)) ./ length(sorted_samples)
-                plot!(p_pgf, sorted_samples, cdf_values, color=colors[c], alpha=alphas[c], label=labels[c], linewidth=1.5) 
+                
+                # Downsample to approximately 100 points
+                # Create approximately 100 evenly spaced CDF values
+                target_cdf_values = range(0.01, 1.0, length=100)
+                downsampled_x = Float64[]
+                downsampled_y = Float64[]
+                
+                # Interpolate the samples to get values at these CDF points
+                for target_cdf in target_cdf_values
+                    # Find closest index
+                    idx = findmin(abs.(cdf_values .- target_cdf))[2]
+                    push!(downsampled_x, sorted_samples[idx])
+                    push!(downsampled_y, cdf_values[idx])
+                end
+                
+                # Plot downsampled data
+                plot!(p_pgf, downsampled_x, downsampled_y, color=colors[c], 
+                      alpha=alphas[c], label=labels[c], linewidth=1.5) 
             end
 
-            # add prior
+            # add prior - also with 100 points
             if show_prior
                 all_samples = vcat([samples[:, param_idx, c] for c in 1:n_chains]...)
                 min_x = minimum(all_samples)
                 max_x = maximum(all_samples)
-                x_prior = range(min_x, max_x, length=500)
+                x_prior = range(min_x, max_x, length=100)  # Reduced to 100 points
 
-            if param_idx == 1
-                sd = abs(δ_b * θ_b)
-                prior_dist = Normal(θ_b, sd)
-                prior_cdf = cdf.(prior_dist, x_prior)
-            else
-                if isnothing(θ_w_lb) || isnothing(θ_w_ub)
-                    θ_w_lb = min_x
-                    θ_w_ub = max_x
+                if param_idx == 1
+                    sd = abs(δ_b * θ_b)
+                    prior_dist = Normal(θ_b, sd)
+                    prior_cdf = cdf.(prior_dist, x_prior)
+                else
+                    if isnothing(θ_w_lb) || isnothing(θ_w_ub)
+                        θ_w_lb = min_x
+                        θ_w_ub = max_x
+                    end
+                    prior_dist = Uniform(θ_w_lb, θ_w_ub)
+                    prior_cdf = cdf.(prior_dist, x_prior)
                 end
-                prior_dist = Uniform(θ_w_lb, θ_w_ub)
-                prior_cdf = cdf.(prior_dist, x_prior)
-            end
 
-            plot!(p_pgf, x_prior, prior_cdf, color=:black, linestyle=:dash, 
-                    linewidth=1.5, label="prior", alpha=1.0)
+                plot!(p_pgf, x_prior, prior_cdf, color=:black, linestyle=:dash, 
+                      linewidth=1.5, label="prior", alpha=1.0)
             end
 
             output_path = RESULTS_PATH * "wq/posteriors/"
@@ -570,21 +630,21 @@ end
 
 
 
-function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filename=nothing, contours=false, use_pdf=true, θ_b=0.5, δ_b=0.1, show_prior=true, θ_w_lb=nothing, θ_w_ub=nothing)
+function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filename=nothing, contours=false, use_pdf=true, θ_b=0.5, δ_b=0.1, show_prior=true, θ_w_lb=nothing, θ_w_ub=nothing, show_y_axis=false)
 
     samples = mcmc_results["samples"]
     n_samples, n_params, n_chains = size(samples)
-    
+
     if param_1 < 1 || param_1 > n_params || param_2 < 1 || param_2 > n_params
         error("Parameter indices must be between 1 and $n_params")
     end
-    
+
     if param_1 == 1
         label_1 = L"\theta_b"
     else
         label_1 = L"\theta_w_{%$(param_1-1)}"
     end
-    
+
     if param_2 == 1
         label_2 = L"\theta_b"
     else
@@ -592,76 +652,85 @@ function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filenam
     end
 
     color = wong_colors[6]
-    
+
     # combine samples from all chains
     samples_1 = samples[:, param_1, 1]
     x_min = floor(minimum(samples_1) * 20) / 20
     x_max = ceil(maximum(samples_1) * 20) / 20
     x_min = iszero(x_min) && signbit(x_min) ? 0.0 : x_min  
     x_max = iszero(x_max) && signbit(x_max) ? 0.0 : x_max  
-    
+
     samples_2 = samples[:, param_2, 1]
     y_min = floor(minimum(samples_2) * 20) / 20
     y_max = ceil(maximum(samples_2) * 20) / 20
     y_min = iszero(y_min) && signbit(y_min) ? 0.0 : y_min  
     y_max = iszero(y_max) && signbit(y_max) ? 0.0 : y_max  
-    
-    # plot attributes
+
+    # Define plot attributes
     plot_kwargs = (
         size=(525, 400), right_margin=8mm, bottom_margin=2mm, top_margin=2mm, 
         xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legendfont=12, 
         foreground_color_legend=nothing, grid=false
     )
-    
-    if param_1 == param_2
 
+    if param_1 == param_2
         bin_edges = LinRange(x_min, x_max, 31)
-        y_label = use_pdf ? "Probability density" : "Frequency"
         normalize_option = use_pdf ? :pdf : false
-        
+
+        # Use empty string for y-label if not showing y-axis
+        y_label = show_y_axis ? (use_pdf ? "Density" : "Frequency") : ""
+
+        # Create histogram plot
         p = histogram(
-            samples_1, bins=bin_edges, color=color, alpha=0.75, xlabel=label_1, ylabel=y_label, 
-            label="posterior", legend=true, linecolor=:transparent, xlims=(x_min, x_max), 
+            samples_1, bins=bin_edges, color=color, alpha=0.75, 
+            xlabel=label_1, ylabel=y_label, label="posterior", 
+            legend=true, linecolor=:transparent, xlims=(x_min, x_max),
             normalize=normalize_option, left_margin=4mm; plot_kwargs...
         )
 
+        # Hide y-axis ticks and numbers if show_y_axis is false
+        if !show_y_axis
+            plot!(p, yticks=nothing, yaxis=false)
+        end
+
         if show_prior
             x_prior = range(x_min, x_max, length=200)
-            
+
             if param_1 == 1
                 sd = abs(δ_b * θ_b)
                 prior_dist = Normal(θ_b, sd)
                 prior_pdf = pdf.(prior_dist, x_prior)
-                
+
                 if !use_pdf
                     max_hist_height = maximum(fit(Histogram, samples_1, bin_edges).weights)
                     scaling_factor = max_hist_height / maximum(prior_pdf)
                     prior_pdf = prior_pdf .* scaling_factor
                 end
                 plot!(p, x_prior, prior_pdf, 
-                      color=:black, 
-                      linestyle=:dash, 
-                      linewidth=1.5, 
-                      label="prior", 
-                      alpha=1.0)
+                color=:black, 
+                linestyle=:dash, 
+                linewidth=1.5, 
+                label="prior", 
+                alpha=1.0)
             else
                 if isnothing(θ_w_lb) || isnothing(θ_w_ub)
                     θ_w_lb = x_min
                     θ_w_ub = x_max
                 end
-                
+
                 prior_dist = Uniform(θ_w_lb, θ_w_ub)
                 prior_pdf = pdf.(prior_dist, x_prior)
                 plot!(p, x_prior, prior_pdf, color=:black, linestyle=:dash, linewidth=1.5, label="prior", alpha=1.0)
             end
         end
     else
+        # For scatter plots, we maintain the y-axis since it represents a different parameter
         p = scatter(
-            samples_1, samples_2, markersize=4, alpha=0.6, label=false, color=color, markerstrokewidth=0, 
-            xlabel=label_1, ylabel=label_2, xlims=(x_min, x_max), ylims=(y_min, y_max), left_margin=4mm; 
-            plot_kwargs...
+            samples_1, samples_2, markersize=4, alpha=0.6, label=false, 
+            color=color, markerstrokewidth=0, xlabel=label_1, ylabel=label_2, 
+            xlims=(x_min, x_max), ylims=(y_min, y_max), left_margin=4mm; plot_kwargs...
         )
-        
+
         if contours
             try
                 k = kde((samples_1, samples_2))
@@ -669,16 +738,16 @@ function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filenam
                 y_grid = range(y_min, y_max, length=100)
                 z = [pdf(k, x, y) for y in y_grid, x in x_grid]
                 contour!(
-                    p, x_grid, y_grid, z, color=:white, linewidth=1.25, linestyle=:solid, 
-                    label=false, zaxis=false
+                p, x_grid, y_grid, z, color=:white, linewidth=1.25, linestyle=:solid, 
+                label=false, zaxis=false
                 )
             catch e
                 @warn "Failed to create contour plot: $e"
             end
         end
     end
-    
-    # save as TeX file
+
+    # Handle TEX file saving with modified y-axis
     if save_tex
         if isnothing(filename)
             if param_1 == param_2
@@ -690,16 +759,15 @@ function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filenam
                 filename = "mcmc_scatter_$(param1_name)_v_$(param2_name).tex"
             end
         end
-        
+
         try
             pgfplotsx()
-            
-            if param_1 == param_2
 
-                # histogram
-                y_label = use_pdf ? "Probability density" : "Frequency"
+            if param_1 == param_2
+                # histogram for TEX
+                y_label = show_y_axis ? (use_pdf ? "Density" : "Frequency") : ""
                 normalize_option = use_pdf ? :pdf : false
-                
+
                 p_pgf = histogram(
                     samples_1, bins=bin_edges, 
                     color=color, alpha=0.75, 
@@ -713,7 +781,13 @@ function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filenam
                     xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14,
                     legendfont=12, foreground_color_legend=nothing, grid=false
                 )
-                
+
+                # Apply the same y-axis visibility settings for the PGF plot
+                if !show_y_axis
+                    plot!(p_pgf, yticks=nothing)  # Remove y-axis ticks and numbers
+                    plot!(p_pgf, yaxis=false)     # Hide the y-axis line
+                end
+
                 if show_prior
                     x_prior = range(x_min, x_max, length=200)
                     
@@ -721,6 +795,11 @@ function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filenam
                         sd = abs(δ_b * θ_b)
                         prior_dist = Normal(θ_b, sd)
                         prior_pdf = pdf.(prior_dist, x_prior)
+                        if !use_pdf
+                            max_hist_height = maximum(fit(Histogram, samples_1, bin_edges).weights)
+                            scaling_factor = max_hist_height / maximum(prior_pdf)
+                            prior_pdf = prior_pdf .* scaling_factor
+                        end
                     else
                         if isnothing(θ_w_lb) || isnothing(θ_w_ub)
                             θ_w_lb = x_min
@@ -730,39 +809,110 @@ function plot_param_dist(mcmc_results, param_1, param_2; save_tex=false, filenam
                         prior_pdf = pdf.(prior_dist, x_prior)
                     end
                     
-                    plot!(p_pgf, x_prior, prior_pdf, 
-                          color=:black, 
-                          linestyle=:dash, 
-                          linewidth=1.5, 
-                          label=false, 
-                          alpha=1.0)
+                    plot!(p_pgf, x_prior, prior_pdf, color=:black, linestyle=:dash, linewidth=1.5, label=false, alpha=1.0)
                 end
             else
-                # scatter plot
+                # scatter plot for TEX
                 p_pgf = scatter(
-                    samples_1, samples_2, 
-                    markersize=4, alpha=0.6, label=false, 
-                    color=color, markerstrokewidth=0,
-                    xlabel=label_1, ylabel=label_2, 
-                    xlims=(x_min, x_max), ylims=(y_min, y_max),
-                    size=(525, 400), 
-                    right_margin=8mm, bottom_margin=2mm, top_margin=2mm,
-                    left_margin=4mm,
-                    xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14,
-                    legendfont=12, foreground_color_legend=nothing, grid=false
+                samples_1, samples_2, 
+                markersize=4, alpha=0.6, label=false, 
+                color=color, markerstrokewidth=0,
+                xlabel=label_1, ylabel=label_2, 
+                xlims=(x_min, x_max), ylims=(y_min, y_max),
+                size=(525, 400), 
+                right_margin=8mm, bottom_margin=2mm, top_margin=2mm,
+                left_margin=4mm,
+                xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14,
+                legendfont=12, foreground_color_legend=nothing, grid=false
                 )
             end
-            
+
             output_path = RESULTS_PATH * "wq/posteriors/"
             savefig(p_pgf, output_path * filename)
             gr()
             println("Plot saved as $filename")
-            
+
         catch e
             @warn "Failed to save as TEX file. Make sure PGFPlotsX is installed: $(e)"
             gr()
         end
     end
-    
+
     return p
+end
+
+
+
+
+function export_mcmc_samples(mcmc_results, param_idx; filename=nothing, use_chains=:all, thin_to=2000)
+
+    # get all samples for the requested parameter across chains
+    samples = mcmc_results["samples"]
+    n_samples, n_params, n_chains = size(samples)
+
+    # verify parameter index
+    if param_idx < 1 || param_idx > n_params
+        error("parameter index must be between 1 and $n_params")
+    end
+
+    # create parameter name for the file header
+    param_name = param_idx == 1 ? "bulk" : "G$(param_idx-1)"
+
+    # create default filename if not provided
+    if isnothing(filename)
+        filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_mcmc_samples_$(param_name).csv"
+    end
+
+    if use_chains == :all
+        # combine all chains for this parameter
+        all_samples = Vector{Float64}(undef, n_samples * n_chains)
+
+        for chain in 1:n_chains
+            start_idx = (chain - 1) * n_samples + 1
+            end_idx = chain * n_samples
+            all_samples[start_idx:end_idx] = samples[:, param_idx, chain]
+        end
+
+        # apply thinning if needed
+        if thin_to > 0 && thin_to < length(all_samples)
+            thin_interval = max(1, floor(Int, length(all_samples) / thin_to))
+            thin_indices = 1:thin_interval:length(all_samples)
+
+            if length(thin_indices) > thin_to
+            thin_indices = thin_indices[1:thin_to]
+            end
+
+            data_to_export = all_samples[thin_indices]
+        else
+            data_to_export = all_samples
+        end
+    else
+        # use specific chain
+        if use_chains < 1 || use_chains > n_chains
+            error("chain index must be between 1 and $n_chains")
+        end
+
+        chain_samples = samples[:, param_idx, use_chains]
+
+        # apply thinning if needed
+        if thin_to > 0 && thin_to < n_samples
+            thin_interval = max(1, floor(Int, n_samples / thin_to))
+            thin_indices = 1:thin_interval:n_samples
+
+            if length(thin_indices) > thin_to
+                thin_indices = thin_indices[1:thin_to]
+            end
+
+            data_to_export = chain_samples[thin_indices]
+        else
+            data_to_export = chain_samples
+        end
+    end
+
+    output_path = RESULTS_PATH * "wq/posteriors/"
+    df = DataFrame()
+    df[!, param_name] = data_to_export
+    CSV.write(output_path * filename, df)
+
+
 end
