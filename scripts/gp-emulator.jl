@@ -63,8 +63,8 @@ wong_colors = [
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material-age-velocity" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.2
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
+δ_s = 0.05
 δ_b = 0.025
 
 # eki results

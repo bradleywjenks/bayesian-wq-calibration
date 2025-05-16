@@ -108,7 +108,7 @@ wn_train = epanet.build_model(
 
 
 ### 4. set θ_w groupings and bounds ###
-grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
 
 θ_w_lb, θ_w_ub = if grouping == "single"
     ([-1.0], [0.0])  # G1: all pipes
@@ -149,7 +149,7 @@ missing_count = sum(ismissing.(ȳ))
 missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 # set noise
-δ_s = 0.2
+δ_s = 0.05
 δ_b = 0.025
 
 # eki calibration
@@ -159,7 +159,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 ### 7. results plotting ###
 p2a, p2b, p2c = plot_eki_progress(stats; save_tex=true)
-p3 = plot_parameter_distribution(θ_init, θ_final, 1, 1; save_tex=true)
+p3 = plot_parameter_distribution(θ_init, θ_final, 3, 3; save_tex=true)
 
 
 
@@ -263,7 +263,7 @@ function run_eki_calibration(θ_b, θ_w_lb, θ_w_ub, wn, datetime, exclude_senso
     y_n = length(y_1)
     
     # sensor noise
-    δ = ȳ .* δ_s .+ 0.025
+    δ = (ȳ .* δ_s) .+ 0.01
     Γ = δ.^2 .* I(y_n)
     Σ = MvNormal(zeros(y_n), Γ)
 
@@ -390,7 +390,7 @@ function summarize_eki_results(θ_final, wn, datetime, exclude_sensors, grouping
         
         # compute negative log-likelihood
         residual = y_m - ȳ
-        Γ = ((δ_s .* ȳ) .+ 0.025).^2 .* I(length(y_m))
+        Γ = ((δ_s .* ȳ) .+ 0.01).^2 .* I(length(y_m))
         
         missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
         valid_indices = findall(x -> x == 1, missing_mask) 

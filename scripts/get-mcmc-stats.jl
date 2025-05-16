@@ -7,7 +7,7 @@ const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results
 data_period = 18
 grouping = "material-age"
 δ_b = 0.025
-δ_s = 0.2
+δ_s = 0.05
 
 # determine parameter names based on grouping
 param_names = if grouping == "material-age"
