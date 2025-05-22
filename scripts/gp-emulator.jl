@@ -63,8 +63,8 @@ wong_colors = [
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.05
+grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
+δ_s = 0.1
 δ_b = 0.025
 
 # eki results
@@ -73,7 +73,7 @@ eki_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s
 eki_results = JLD2.load(eki_results_path * eki_filename, "eki_results")
 
 bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
-selected_sensor = bwfl_ids[1]
+selected_sensor = bwfl_ids[6]
 
 # operational data
 flow_df = CSV.read(TIMESERIES_PATH * "/processed/" * padded_period * "-flow.csv", DataFrame); flow_df.datetime = DateTime.(flow_df.datetime, dateformat"yyyy-mm-dd HH:MM:SS")

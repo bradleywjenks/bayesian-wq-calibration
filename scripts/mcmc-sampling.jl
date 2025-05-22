@@ -64,7 +64,7 @@ wong_colors = [
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
 grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.05
+δ_s = 0.1
 δ_b = 0.025
 
 # eki results
@@ -162,7 +162,9 @@ end
         θ_scaled = scaler.transform(reshape(θ, 1, length(θ)))
         y_pred = vec(gp_model.predict(θ_scaled))
         residual = y_obs - y_pred
-        variance = ((y_obs .* $(δ_s)) .+ 0.01).^2
+        # δ = max.((y_obs .* $(δ_s)), 0.05)
+        δ = max.((y_obs .* $(δ_s)), 0.025)
+        variance = δ.^2
         return -0.5 * sum((residual.^2) ./ variance)
     end
 end
@@ -300,7 +302,7 @@ r_hat = assess_mcmc_convergence(mcmc_results)
 ### 5. results plotting ###
 param_1 = 4
 param_2 = 4
-save_tex = false
+save_tex = true
 contours = false
 thin = 20
 
