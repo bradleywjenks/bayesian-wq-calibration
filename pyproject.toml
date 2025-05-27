@@ -35,8 +35,9 @@ blis = "^1.1.0"
 arviz = "^0.20.0"
 theano = "^1.0.5"
 pytensor = "^2.26.4"
-wntr = {path = "/Users/bradwjenks/Code/tools/WNTR"}
 chardet = "^5.2.0"
+jupyterlab = "^4.4.3"
+wntr = {path = "/Users/bradwjenks/Code/tools/WNTR", develop = true}
 
 
 [build-system]

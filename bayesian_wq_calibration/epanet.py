@@ -37,7 +37,7 @@ def model_simulation(flow_df, pressure_df, cl_df, sim_type='hydraulic', demand_r
     wn = build_model(flow_df, pressure_df, cl_df, sim_type=sim_type, demand_resolution=demand_resolution, iv_status=iv_status, dbv_status=dbv_status, trace_node=trace_node, wall_coeffs=wall_coeffs, bulk_coeff=bulk_coeff, flush_data=flush_data)
 
     # 2. output results as structure
-    sim_results = epanet_simulator(wn, sim_type, cl_df)
+    sim_results = epanet_simulator(wn, sim_type, cl_df["datetime"].unique())
 
     return sim_results
 

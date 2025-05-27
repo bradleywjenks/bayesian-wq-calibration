@@ -63,8 +63,8 @@ wong_colors = [
 ### 1. load eki results, GP model, operational data, and other MCMC parameters ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.1
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
+δ_s = 0.25
 δ_b = 0.025
 
 # eki results
@@ -162,8 +162,8 @@ end
         θ_scaled = scaler.transform(reshape(θ, 1, length(θ)))
         y_pred = vec(gp_model.predict(θ_scaled))
         residual = y_obs - y_pred
-        # δ = max.((y_obs .* $(δ_s)), 0.05)
-        δ = max.((y_obs .* $(δ_s)), 0.025)
+        δ = max.((y_obs .* $(δ_s)), 0.05)
+        # δ = max.((y_obs .* $(δ_s)), 0.025)
         variance = δ.^2
         return -0.5 * sum((residual.^2) ./ variance)
     end
@@ -276,19 +276,22 @@ end
 ### 4. run MCMC algorithm ###
 
 begin
-    # scaling_factors = [0.2, 0.4, 0.4, 0.4]
-    scaling_factors = [0.5, 0.75, 0.75, 0.75]
+    # scaling_factors = [0.15, 0.3, 0.3, 0.3]
+    # scaling_factors = [0.5, 0.75, 0.75, 0.75]
     # scaling_factors = [0.2, 0.4, 0.4]
+    # scaling_factors = [1, 2.5, 2.5]
+    scaling_factors = [0.1, 0.25, 0.25]
     parallel = true
     n_samples = 50000
     θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
     θ_init = vec(mean(θ_samples, dims=1))
-    θ_init_list = [θ_init .+ 0.01 .* randn(length(θ_init)) for _ in 1:4]
+    θ_init_list = [θ_init .+ 0.001 .* randn(length(θ_init)) for _ in 1:4]
 
     for i in 1:length(θ_init_list)
         θ_init_list[i] = [val > 0 ? 0.0 : val for val in θ_init_list[i]]
     end
 end
+
 θ_init_list
 
 mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel)
@@ -300,8 +303,8 @@ r_hat = assess_mcmc_convergence(mcmc_results)
 
 
 ### 5. results plotting ###
-param_1 = 4
-param_2 = 4
+param_1 = 2
+param_2 = 2
 save_tex = true
 contours = false
 thin = 20
@@ -320,14 +323,6 @@ end
 export_mcmc_samples(mcmc_results, param_1, thin_to=5000)
 
  
-
-
-
-
-
-
-
-
 
 
 

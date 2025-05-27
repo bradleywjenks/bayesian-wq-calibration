@@ -63,7 +63,7 @@ wong_colors = [
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
 δ_s = 0.1
 δ_b = 0.025
 
@@ -124,7 +124,7 @@ y_pred_σ = test_results["y_pred_σ"]
 
 filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)"
 
-θ_n = 2
+θ_n = 3
 save_tex = true
 begin
     p0 = histogram(x_test[:, θ_n], alpha=0.5, color=wong_colors[2], label="Extended θ", xlabel="θ", ylabel="Frequency", grid=false, size=(750, 400), left_margin=4mm, right_margin=8mm, bottom_margin=4mm, top_margin=4mm, xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legend=:outertopright, legendfont=12, foreground_color_legend=nothing)
