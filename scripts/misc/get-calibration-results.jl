@@ -4,6 +4,7 @@ using Dates
 using Statistics
 using PyCall
 using JLD2
+using Colors
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
@@ -112,6 +113,36 @@ for sensor_id in bwfl_ids
 end
 
 CSV.write(output_path * filename, final_df)
+
+
+# compute performance metrics for all sensor data
+measured_cols = [col for col in names(final_df) if endswith(col, "_measured")]
+simulated_cols = [col for col in names(final_df) if endswith(col, "_sim_mean")]
+measured_stacked = vcat([final_df[!, col] for col in measured_cols]...)
+simulated_stacked = vcat([final_df[!, col] for col in simulated_cols]...)
+
+plot_df = DataFrame(measured = measured_stacked, simulated = simulated_stacked)
+plot_df = dropmissing(plot_df)
+
+# save 1:1 plot data
+plot_filename = "$(data_period)_$(grouping)_δb_$(δ_b)_δs_$(δ_s)_1to1_plot.csv"
+CSV.write(output_path * plot_filename, plot_df)
+
+# compute performance metrics
+residuals = plot_df.measured .- plot_df.simulated
+rmse = sqrt(mean(residuals.^2))
+abs_residuals = abs.(residuals)
+pct_within_005 = (sum(abs_residuals .<= 0.05) / length(abs_residuals)) * 100
+pct_within_01 = (sum(abs_residuals .<= 0.1) / length(abs_residuals)) * 100
+
+# print results
+println("Performance Metrics:")
+println("===================")
+println("Number of data points: $(nrow(plot_df))")
+println("RMSE: $(round(rmse, digits=4))")
+println("% residuals within 0.05: $(round(pct_within_005, digits=2))%")
+println("% residuals within 0.1: $(round(pct_within_01, digits=2))%")
+
 
 
 
