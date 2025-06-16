@@ -712,8 +712,8 @@ priors_test = Dict(
 # create (θ, y) pairs using latin hypercube sampling
 exclude_sensors = ["BW1", "BW4", "BW7", "BW5_2"]
 param_order = [:B, :G1, :G2, :G3]
-n_gp_pairs = 1000
-force_regenerate = true
+n_gp_pairs = 500
+force_regenerate = false
 dataset_pairs_cpu_time = @elapsed begin
     dataset_pairs = generate_gp_data_pairs(n_gp_pairs, priors_train, param_order, datetime_train, wn_train, grouping, exclude_sensors; force_regenerate=force_regenerate)
 end
@@ -727,7 +727,7 @@ train_ratio = 0.8
 train_indices = randperm(n_gp_pairs)[1:floor(Int, n_gp_pairs * train_ratio)]
 test_indices = setdiff(1:n_gp_pairs, train_indices)
 bwfl_ids = filter(id -> !(id ∈ exclude_sensors), unique(cl_df_train.bwfl_id))
-force_retrain = true
+force_retrain = false
 
 gp_train_cpu_time = @elapsed begin
     train_gp_emulators(dataset_pairs, bwfl_ids, train_indices; force_retrain=force_retrain)
@@ -748,7 +748,7 @@ n_chains = 4
 n_samples = 10000
 parallel = true
 # θ_init = [[rand(priors_train[:B]); rand(priors_train[:G1]); rand(priors_train[:G2]); rand(priors_train[:G3])] for _ in 1:n_chains]
-θ_guess = [θ_b_train, -0.15, -0.15, -0.025]
+θ_guess = [θ_b_train, -0.15, -0.15, -0.01]
 θ_init = [θ_guess .+ 0.0001 .* randn(length(θ_guess)) for _ in 1:n_chains]
 
 mcmc_results = run_mcmc(y_obs, gp_dict, priors_train, θ_init; n_samples=n_samples, f_b=f_b, λ=λ, parallel=parallel, ϵ=ϵ)
@@ -811,7 +811,7 @@ y_df_mean = forward_model(wn_test, θ_mean, grouping, datetime_test, exclude_sen
 y_df_2_5 = forward_model(wn_test, θ_2_5, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
 y_df_97_5 = forward_model(wn_test, θ_97_5, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
 
-sensor_id = "BW12"
+sensor_id = "BW6"
 
 x_indices = 1:length(datetime_test[1*24*4+1:end])
 tick_positions = 0:48:length(x_indices)
@@ -825,3 +825,5 @@ upper_bound_data = y_df_97_5[!, sensor_id]
 mean_sim_data = y_df_mean[!, sensor_id]
 plot!(x_indices, upper_bound_data, fillrange = lower_bound_data, fillcolor = wong_colors[2], fillalpha = 0.2, linewidth = 0, label = "")
 plot!(x_indices, mean_sim_data, label="simulated", color=wong_colors[2], linewidth=1.5)
+
+
