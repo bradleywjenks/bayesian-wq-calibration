@@ -31,12 +31,6 @@ using MLJ
 addprocs(4)
 @everywhere using Distributions, Random, ProgressMeter, PyCall, DataFrames, LinearAlgebra, MLJ, Surrogates
 
-# py"""
-# import warnings
-# from sklearn.exceptions import ConvergenceWarning
-# warnings.filterwarnings("ignore", category=ConvergenceWarning)
-# """
-
 pd = pyimport("pandas")
 np = pyimport("numpy")
 pickle = pyimport("pickle")
@@ -44,11 +38,6 @@ io = pyimport("io")
 data = pyimport("bayesian_wq_calibration.data")
 epanet = pyimport("bayesian_wq_calibration.epanet")
 
-# @sk_import preprocessing: StandardScaler
-# @sk_import gaussian_process: GaussianProcessRegressor
-# @sk_import gaussian_process.kernels: (RBF, Matern, RationalQuadratic, ConstantKernel)
-# @sk_import metrics: (mean_squared_error, mean_absolute_error, r2_score)
-# @sk_import multioutput: MultiOutputRegressor
 
 const TIMESERIES_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/data/timeseries"
 const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/"

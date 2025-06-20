@@ -149,7 +149,7 @@ missing_count = sum(ismissing.(ȳ))
 missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 # set noise
-δ_s = 0.1
+δ_s = 0.2
 δ_b = 0.025
 
 # eki calibration
