@@ -81,13 +81,13 @@ n_ensemble = length(eki_results)
 y = get_sensor_y(eki_results, selected_sensor)
 
 bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
-sensor = bwfl_ids[6]
+sensor = bwfl_ids[4]
 
 histogram(θ_samples[:, 4], xlabel="θ", ylabel="Frequency", color=wong_colors[4], xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18)
 
 ### 3. train and test gp model for selected sensor ###
 x_valid_results = nothing
-x_valid_results =  gp_model_x_valid(θ_samples, y, grouping, sensor; kernel_type="Kriging", save=true, cv_folds=5)
+x_valid_results =  gp_model_x_valid(θ_samples, y, grouping, sensor; save=true, cv_folds=5)
 
 
 
@@ -421,7 +421,7 @@ begin
 
 
 
-    function gp_model_x_valid(θ_samples, y, grouping, sensor; kernel_type="Kriging", save=true, cv_folds=5)
+    function gp_model_x_valid(θ_samples, y, grouping, sensor; save=true, cv_folds=5)
 
         n_samples = size(θ_samples, 1)
         n_params = size(θ_samples, 2)
@@ -472,10 +472,11 @@ begin
 
             # train GP model for each output dimension
             gp_surrogates = Vector{Any}(undef, n_outputs)
-            println("Training $(n_outputs) Kriging surrogates...")
+            println("Training $(n_outputs) GP emulators...")
             for t in 1:n_outputs
                 y_output_t = y_train[:, t]
-                surrogate = Kriging(x_train_scaled_vec, y_output_t, lower_bounds, upper_bounds)
+                surrogate = RadialBasis(x_train_scaled_vec, y_output_t, lower_bounds, upper_bounds)
+                # surrogate = Kriging(x_train_scaled_vec, y_output_t, lower_bounds, upper_bounds)
                 gp_surrogates[t] = surrogate
             end
             println("Training complete for fold $fold.")
