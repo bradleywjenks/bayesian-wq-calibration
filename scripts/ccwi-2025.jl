@@ -22,7 +22,6 @@ using Plots.PlotMeasures
 using PyCall
 using JLD2
 using LatinHypercubeSampling
-# using ScikitLearn
 using ProgressMeter
 using Printf
 using Surrogates
@@ -282,7 +281,6 @@ begin
                 end
             end
 
-            # --- 6. Scale Inputs and Make Predictions ---
             X_test_scaled_table = MLJ.transform(scaler, X_test_table)
             X_test_scaled_mat = Matrix(X_test_scaled_table)
             X_test_scaled_vec = [X_test_scaled_mat[i, :] for i in 1:n_test_samples]
@@ -639,10 +637,11 @@ flow_df = CSV.read(TIMESERIES_PATH * "/processed/" * padded_period * "-flow.csv"
 pressure_df = CSV.read(TIMESERIES_PATH * "/processed/" * padded_period * "-pressure.csv", DataFrame); pressure_df.datetime = DateTime.(pressure_df.datetime, dateformat"yyyy-mm-dd HH:MM:SS")
 wq_df = CSV.read(TIMESERIES_PATH * "/processed/" * padded_period * "-wq.csv", DataFrame); wq_df.datetime = DateTime.(wq_df.datetime, dateformat"yyyy-mm-dd HH:MM:SS")
 cl_df = wq_df[wq_df.data_type .== "chlorine", :]
+temp_df = wq_df[wq_df.data_type .== "temperature", :]
 
-ylabel = "Chlorine [mg/L]" # "Flow [L/s]", "Pressure [m]", "Chlorine [mg/L]"
-df = cl_df # cl_df, flow_df, pressure_df
-p1 = plot_bwfl_data(df, ylabel, ymax=1.0)
+ylabel = "Temperature [°C]" # "Flow [L/s]", "Pressure [m]", "Chlorine [mg/L]", "Temperature [°C]"
+df = temp_df # cl_df, flow_df, pressure_df
+p1 = plot_bwfl_data(df, ylabel, ymax=30)
 
 datetime = DateTime.(unique(flow_df.datetime)) 
 n_total = length(datetime) 
@@ -807,23 +806,35 @@ plot_g3 = plot_mcmc_param_histogram(g3_samples, priors_train[:G3], g3_label, g3_
 θ_2_5 = [quantile(b_samples, 0.025), quantile(g1_samples, 0.025), quantile(g2_samples, 0.025), quantile(g3_samples, 0.025)]
 θ_97_5 = [quantile(b_samples, 0.975), quantile(g1_samples, 0.975), quantile(g2_samples, 0.975), quantile(g3_samples, 0.975)]
 
+θ_lb_prior = [θ_b_train - 3 * σ_b, -0.25, -0.25, -0.1]
+θ_ub_prior = [θ_b_train + 3 * σ_b, 0.0, 0.0, 0.0]
+
 y_df_mean = forward_model(wn_test, θ_mean, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
 y_df_2_5 = forward_model(wn_test, θ_2_5, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
 y_df_97_5 = forward_model(wn_test, θ_97_5, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
+y_df_lb_prior = forward_model(wn_test, θ_lb_prior, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
+y_df_ub_prior = forward_model(wn_test, θ_ub_prior, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
 
-sensor_id = "BW6"
 
-x_indices = 1:length(datetime_test[1*24*4+1:end])
-tick_positions = 0:48:length(x_indices)
-tick_labels = Int.(tick_positions ./ 4)
+sensor_id = "BW12"
 
-observed_data = filter(row -> row.bwfl_id == sensor_id, cl_df_test).mean[1*24*4+1:end]
-plot(x_indices, observed_data, label="observed", color="black", linewidth=1.5, xlabel="Hour", ylabel="Chlorine [mg/L]", size=(500, 350), left_margin=8mm, right_margin=8mm, bottom_margin=8mm, top_margin=8mm, xtickfont=14, ytickfont=14, xguidefont=16, yguidefont=16,legendfont=14,grid=false, legend=(0.75, 1.0), ylims=(0, 0.8), xticks=(tick_positions, tick_labels), legend_foreground_color=nothing, foreground_color_legend=nothing)
+begin
+    x_indices = 1:length(datetime_test[1*24*4+1:end])
+    tick_positions = 0:48:length(x_indices)
+    tick_labels = Int.(tick_positions ./ 4)
 
-lower_bound_data = y_df_2_5[!, sensor_id]
-upper_bound_data = y_df_97_5[!, sensor_id]
-mean_sim_data = y_df_mean[!, sensor_id]
-plot!(x_indices, upper_bound_data, fillrange = lower_bound_data, fillcolor = wong_colors[2], fillalpha = 0.2, linewidth = 0, label = "")
-plot!(x_indices, mean_sim_data, label="simulated", color=wong_colors[2], linewidth=1.5)
+    observed_data = filter(row -> row.bwfl_id == sensor_id, cl_df_test).mean[1*24*4+1:end]
+    plot(x_indices, observed_data, label="obs.", color="black", linewidth=1.5, xlabel="Hour", ylabel="Chlorine [mg/L]", size=(500, 350), left_margin=8mm, right_margin=8mm, bottom_margin=8mm, top_margin=8mm, xtickfont=14, ytickfont=14, xguidefont=16, yguidefont=16,legendfont=14,grid=false, legend=(0.55, 1.0), ylims=(0, 1.0), yticks=(0:0.25:1.0), xticks=(tick_positions, tick_labels), legend_foreground_color=nothing, foreground_color_legend=nothing)
+
+    lower_bound_posterior = y_df_2_5[!, sensor_id]
+    upper_bound_posterior = y_df_97_5[!, sensor_id]
+    mean_sim_posterior = y_df_mean[!, sensor_id]
+    lower_bound_prior = y_df_lb_prior[!, sensor_id]
+    upper_bound_prior = y_df_ub_prior[!, sensor_id]
+
+    plot!(x_indices, lower_bound_prior, fillrange = upper_bound_prior, fillcolor = wong_colors[1], fillalpha = 0.075, linewidth = 0, linealpha = 0, label = "sim. (prior)")
+    plot!(x_indices, upper_bound_posterior, fillrange = lower_bound_posterior, fillcolor = wong_colors[2], fillalpha = 0.3, linewidth = 0, linealpha = 0, label = "sim. (posterior)")
+    plot!(x_indices, mean_sim_posterior, label="", color=wong_colors[2], linewidth=1.5)
+end
 
 
