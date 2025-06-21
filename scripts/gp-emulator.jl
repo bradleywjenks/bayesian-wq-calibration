@@ -29,7 +29,6 @@ using PyCall
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
-pickle = pyimport("pickle")
 data = pyimport("bayesian_wq_calibration.data")
 epanet = pyimport("bayesian_wq_calibration.epanet")
 
@@ -53,8 +52,8 @@ wong_colors = [
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.2
+grouping = "single" # "single", "material", "material-age", "material-age-velocity"
+δ_s = 0.1
 δ_b = 0.025
 
 # eki results
@@ -76,14 +75,15 @@ datetime_select = unique_datetime[1:dataset_size + (24 * 4)] # train data size +
 
 
 ### 2. extract parameter-output pairs from eki ensemble ###
+bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
+sensor = bwfl_ids[1]
+
 n_ensemble = length(eki_results)
 θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
-y = get_sensor_y(eki_results, selected_sensor)
+y = get_sensor_y(eki_results, sensor)
 
-bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
-sensor = bwfl_ids[4]
+# histogram(θ_samples[:, 4], xlabel="θ", ylabel="Frequency", color=wong_colors[4], xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18)
 
-histogram(θ_samples[:, 4], xlabel="θ", ylabel="Frequency", color=wong_colors[4], xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18)
 
 ### 3. train and test gp model for selected sensor ###
 x_valid_results = nothing
@@ -103,7 +103,7 @@ burn_in = 24 * 4
 n_expand = 10
 lhs_dist = "normal"
 
-test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist=lhs_dist)
+test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist=lhs_dist, save_results=true)
 
 
 
@@ -111,19 +111,17 @@ test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["sc
 x_test = test_results["x_test"]
 y_test = test_results["y_test"]
 y_pred_μ = test_results["y_pred_μ"]
-y_pred_σ = test_results["y_pred_σ"]
 
-filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)"
+filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor)"
 
-θ_n = 3
+θ_n = 1
 save_tex = true
 begin
     p0 = histogram(x_test[:, θ_n], alpha=0.5, color=wong_colors[2], label="Extended θ", xlabel="θ", ylabel="Frequency", grid=false, size=(750, 400), left_margin=4mm, right_margin=8mm, bottom_margin=4mm, top_margin=4mm, xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legend=:outertopright, legendfont=12, foreground_color_legend=nothing)
     p0 = histogram!(θ_samples[:, θ_n], alpha=0.5, color=wong_colors[3], label="EKI θ")
 end
 p1 = plot_parity(y_test, y_pred_μ, filename, save_tex=save_tex)
-p2 = plot_time_series(y_test, y_pred_μ, y_pred_σ, filename, n_samples=3, save_tex=save_tex)
-p3 = plot_error_histogram(y_test, y_pred_μ, filename, save_tex=save_tex)
+p2 = plot_error_histogram(y_test, y_pred_μ, filename, save_tex=save_tex)
 
 
 
@@ -183,7 +181,7 @@ begin
         p = scatter(y_true_flat, y_pred_flat,
             xlabel="EPANET",
             ylabel="GP",
-            title=selected_sensor,
+            title=sensor,
             legend=false,
             markersize=5,
             markercolor=wong_colors[3],
@@ -217,7 +215,7 @@ begin
                 p_pgf = scatter(y_true_flat, y_pred_flat,
                     xlabel="EPANET",
                     ylabel="GP",
-                    title=selected_sensor,
+                    title=sensor,
                     legend=false,
                     markersize=5,
                     markercolor=wong_colors[3],
@@ -267,7 +265,7 @@ begin
         p = plot(
             xlabel="Time step",
             ylabel="Chlorine [mg/L]",
-            title=selected_sensor,
+            title=sensor,
             size=(800, 400),
             left_margin=6mm,
             right_margin=6mm,
@@ -308,7 +306,7 @@ begin
                 p_pgf = plot(
                     xlabel="Time step",
                     ylabel="Chlorine [mg/L]",
-                    title=selected_sensor,
+                    title=sensor,
                     size=(800, 400),
                     left_margin=6mm,
                     right_margin=6mm,
@@ -366,7 +364,7 @@ begin
             bins=30,
             xlabel="Error [mg/L]",
             ylabel="Frequency",
-            title=selected_sensor,
+            title=sensor,
             legend=false,
             alpha=0.7,
             color=wong_colors[3],
@@ -389,7 +387,7 @@ begin
                     bins=30,
                     xlabel="Error [mg/L]",
                     ylabel="Frequency",
-                    title=selected_sensor,
+                    title=sensor,
                     legend=false,
                     alpha=0.7,
                     color=wong_colors[3],
@@ -475,8 +473,8 @@ begin
             println("Training $(n_outputs) GP emulators...")
             for t in 1:n_outputs
                 y_output_t = y_train[:, t]
-                surrogate = RadialBasis(x_train_scaled_vec, y_output_t, lower_bounds, upper_bounds)
-                # surrogate = Kriging(x_train_scaled_vec, y_output_t, lower_bounds, upper_bounds)
+                # surrogate = RadialBasis(x_train_scaled_vec, y_output_t, lower_bounds, upper_bounds)
+                surrogate = Kriging(x_train_scaled_vec, y_output_t, lower_bounds, upper_bounds)
                 gp_surrogates[t] = surrogate
             end
             println("Training complete for fold $fold.")
@@ -534,7 +532,18 @@ begin
             )
         )
 
-        # save results here...
+        # save GP emulators
+        if save
+            output_path = joinpath(RESULTS_PATH, "wq/gp_models")
+            filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor)_gp.jld2"
+            filepath = joinpath(output_path, filename)
+            model_to_save = (
+                surrogates = best_model,
+                scaler = best_scaler
+            )
+            jldsave(filepath; model_to_save...)
+            println("Best GP model saved to: $filepath")
+        end
 
         return results_dict
     end
@@ -554,94 +563,83 @@ begin
 
 
 
-    function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, selected_sensor, wn, datetime_select; 
-        exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist="uniform", save_percent=100, decimal_places=4, 
-        tolerance=0.01, save_results=true)
+    function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=nothing, burn_in=nothing, lhs_dist="uniform", save_percent=100, decimal_places=4, tolerance=0.01, save_results=true)
 
         n_output = size(y, 2)
         θ_means = vec(mean(θ_samples, dims=1))
         θ_stds = vec(std(θ_samples, dims=1))
-
-        # sample extended θ
         x_test = latin_hypercube_sampling(θ_means, θ_stds, n_expand, dist_type=lhs_dist)
-        x_test_scaled = scaler.transform(x_test)
+        x_test_scaled_matrix = Matrix(MLJ.transform(scaler, DataFrame(x_test, :auto)))
+        x_test_scaled_vec = [x_test_scaled_matrix[i, :] for i in 1:size(x_test_scaled_matrix, 1)]
 
-        # run forward model
-        y_test = zeros(n_expand, n_output)
+        y_test_full = Matrix{Union{Missing, Float64}}(undef, n_expand, n_output)
         for i in 1:n_expand
-            y_df = forward_model(wn, x_test[i, :], grouping, datetime_select, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
-            y_test[i,:] = y_df[!, Symbol(selected_sensor)]
-        end
-
-        # run GP model
-        y_pred_μ = gp_model.predict(x_test_scaled)
-        y_pred_σ = zeros(size(y_test))
-
-        for i in 1:size(x_test, 1)
-            for t in 1:n_output
-                estimator = gp_model.estimators_[t]
-                _, std = estimator.predict(x_test_scaled[i:i, :], return_std=true)
-                y_pred_σ[i, t] = std[1]
+            y_df_sample = forward_model(wn, x_test[i, :], grouping, datetime_select, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
+            if Symbol(sensor) ∈ propertynames(y_df_sample)
+                 y_test_full[i,:] = y_df_sample[!, Symbol(sensor)]
+            else
+                @warn "Sensor $(sensor) not found in y_df for sample $i. Marking this row as missing."
+                y_test_full[i,:] .= missing 
             end
         end
 
-        # Calculate percent of points within tolerance (±0.01 mg/L)
-        abs_diff = abs.(y_test - y_pred_μ)
-        within_tolerance = count(abs_diff .<= tolerance) / length(abs_diff) * 100
+        y_pred_μ_full = predict_multi_output(gp_model, x_test_scaled_vec, n_output)
 
-        # calculate metrics using all data
+        valid_mask = .!ismissing.(y_test_full)
+        valid_indices_flat = findall(valid_mask)
+
+        y_test_valid = y_test_full[valid_indices_flat]
+        y_pred_μ_valid = y_pred_μ_full[valid_indices_flat]
+
+        # compute metrics
+        abs_diff_valid = abs.(y_test_valid .- y_pred_μ_valid)
+        within_tolerance = if !isempty(abs_diff_valid)
+            count(abs_diff_valid .<= tolerance) / length(abs_diff_valid) * 100
+        else
+            0.0
+        end
         metrics = Dict(
-            "rmse" => round(sqrt(mean_squared_error(y_test, y_pred_μ)), digits=decimal_places),
-            "mae" => round(mean_absolute_error(y_test, y_pred_μ), digits=decimal_places),
-            "maxae" => round(maximum(abs.(y_test - y_pred_μ)), digits=decimal_places),
-            "r2" => round(r2_score(y_test, y_pred_μ), digits=decimal_places),
+            "rmse" => round(sqrt(mean(abs2.(y_test_valid .- y_pred_μ_valid))), digits=decimal_places),
+            "mae" => round(mean(abs.(y_test_valid .- y_pred_μ_valid)), digits=decimal_places),
+            "maxae" => round(maximum(abs.(y_test_valid .- y_pred_μ_valid)), digits=decimal_places),
+            "r2" => round(r2_score(reshape(y_test_valid, :, 1), reshape(y_pred_μ_valid, :, 1)), digits=decimal_places),
             "within_$(tolerance)_mg_L" => round(within_tolerance, digits=decimal_places)
         )
 
-        # function to round array values to specified decimal places
-        function round_array(arr, digits)
-            return round.(arr, digits=digits)
-        end
-
-        # save only a random subset if save_percent < 100
         if save_percent < 100
             n_save = round(Int, n_expand * save_percent / 100)
             save_indices = randperm(n_expand)[1:n_save]
 
             results_dict = Dict(
-                "x_test" => round_array(x_test[save_indices, :], decimal_places),
-                "y_test" => round_array(y_test[save_indices, :], decimal_places),
-                "y_pred_μ" => round_array(y_pred_μ[save_indices, :], decimal_places),
-                "y_pred_σ" => round_array(y_pred_σ[save_indices, :], decimal_places),
+                "x_test" => x_test[save_indices, :],
+                "y_test" => y_test_full[save_indices, :],
+                "y_pred_μ" => y_pred_μ_full[save_indices, :],
                 "metrics" => metrics,
                 "save_percent" => save_percent
             )
         else
             results_dict = Dict(
-                "x_test" => round_array(x_test, decimal_places),
-                "y_test" => round_array(y_test, decimal_places),
-                "y_pred_μ" => round_array(y_pred_μ, decimal_places),
-                "y_pred_σ" => round_array(y_pred_σ, decimal_places),
+                "x_test" => x_test,
+                "y_test" => y_test_full,
+                "y_pred_μ" => y_pred_μ_full,
                 "metrics" => metrics,
                 "save_percent" => 100
             )
         end
 
-        # save results to file if requested
         if save_results
-            save_validation_results(results_dict, data_period, grouping, δ_b, δ_s, selected_sensor)
+            save_validation_results(results_dict, data_period, grouping, δ_b, δ_s, sensor)
         end
 
         return results_dict
     end
 
-    function save_validation_results(results_dict, data_period, grouping, δ_b, δ_s, selected_sensor)
+
+    function save_validation_results(results_dict, data_period, grouping, δ_b, δ_s, sensor)
         output_path = RESULTS_PATH * "wq/gp_models/"
-        base_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)_validation"
+        base_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor)_validation"
         
         JLD2.save(output_path * base_filename * ".jld2", "test_results", results_dict)
-        
-        println("Saved validation results for $selected_sensor to $base_filename.jld2")
         
     end
 
@@ -714,7 +712,7 @@ begin
     function save_gp_model(model, scaler, results_dict)
 
         output_path = RESULTS_PATH * "wq/gp_models/"
-        base_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(selected_sensor)"
+        base_filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor)"
 
         # pickle files
         open(output_path * base_filename * "_model.pkl", "w") do f
@@ -727,7 +725,7 @@ begin
         # JLD2 files
         JLD2.save(output_path * base_filename * ".jld2", "gp_results", results_dict)
 
-        println("Saved GP model for $selected_sensor using pickle and JLD2.")
+        println("Saved GP model for $sensor using pickle and JLD2.")
 
     end
 

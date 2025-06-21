@@ -21,27 +21,21 @@ using Plots.PlotMeasures
 using PGFPlotsX
 using JLD2
 using LaTeXStrings
-using ScikitLearn
+using Surrogates
+using MLJ
 using PyCall
 using Printf
 using KernelDensity
 using ProgressMeter
 using Distributed
 addprocs(4)
-@everywhere using Distributions, Random, ProgressMeter, PyCall, DataFrames 
+@everywhere using Distributions, Random, ProgressMeter, PyCall, DataFrames, MLJ
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
-pickle = pyimport("pickle")
-builtins = pyimport("builtins")
 data = pyimport("bayesian_wq_calibration.data")
 epanet = pyimport("bayesian_wq_calibration.epanet")
 
-@sk_import preprocessing: StandardScaler
-@sk_import gaussian_process: GaussianProcessRegressor
-@sk_import gaussian_process.kernels: (RBF, Matern, RationalQuadratic, ConstantKernel)
-@sk_import metrics: (mean_squared_error, mean_absolute_error, r2_score)
-@sk_import multioutput: MultiOutputRegressor
 
 const TIMESERIES_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/data/timeseries"
 const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/"
@@ -63,8 +57,8 @@ wong_colors = [
 ### 1. load eki results, GP model, operational data, and other MCMC parameters ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.25
+grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
+δ_s = 0.2
 δ_b = 0.025
 
 # eki results
@@ -78,26 +72,12 @@ gp_models_path = RESULTS_PATH * "wq/gp_models/"
 gp_filename_base = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))"
 gp_dict = Dict{String, Dict{String, Any}}()
 for sensor_id ∈ bwfl_ids
-    base_filename = gp_filename_base * "_$(sensor_id)"
-    model_file = gp_models_path * base_filename * "_model.pkl"
-    scaler_file = gp_models_path * base_filename * "_scaler.pkl"
-    
-    if isfile(model_file) && isfile(scaler_file)
-        py_model_file = builtins.open(model_file, "rb")
-        gp_model = pickle.load(py_model_file)
-        py_model_file.close()
-        
-        py_scaler_file = builtins.open(scaler_file, "rb")
-        scaler = pickle.load(py_scaler_file)
-        py_scaler_file.close()
-        
-        gp_dict[sensor_id] = Dict(
-            "gp_model" => gp_model,
-            "scaler" => scaler
-        )
-    else
-        println("Missing GP model files for sensor $sensor_id")
-    end
+    model_file = gp_filename_base * "_$(sensor_id)_gp.jld2"
+    gp_files = JLD2.load(filepath)
+    gp_dict[sensor_id] = Dict(
+        "gp_model" => gp_files["surrogates"],
+        "scaler" => gp_files["scaler"]
+    )
 end
 
 # operational data
@@ -158,13 +138,22 @@ end
 ### 2b. define likelihood function ###
 
 @everywhere begin
-    function log_likelihood(θ, gp_model, scaler, y_obs)
-        θ_scaled = scaler.transform(reshape(θ, 1, length(θ)))
-        y_pred = vec(gp_model.predict(θ_scaled))
-        residual = y_obs - y_pred
-        δ = max.((y_obs .* $(δ_s)), 0.05)
-        # δ = max.((y_obs .* $(δ_s)), 0.025)
-        variance = δ.^2
+    function log_likelihood(θ, gp_model, scaler, y_obs, valid_indices)
+
+        n_outputs = size(y_obs, 2)
+
+        # scale input data
+        θ_scaled_matrix = Matrix(MLJ.transform(scaler, DataFrame(θ, :auto)))
+        θ_scaled_vec = [θ_scaled_matrix[i, :] for i in 1:size(θ_scaled_matrix, 1)]
+
+        # get gp predictions
+        y_pred = zeros(n_outputs)
+        for t in 1:n_outputs
+            y_pred[t] = gp_model[t](θ_scaled_vec)
+        end
+        residual = y_obs[valid_indices] - y_pred[valid_indices]
+        variance = $(δ_s).^2
+        
         return -0.5 * sum((residual.^2) ./ variance)
     end
 end
@@ -186,7 +175,9 @@ end
                 gp_model = $(gp_dict)[sensor]["gp_model"]
                 scaler = $(gp_dict)[sensor]["scaler"]
                 y_obs = subset($(y_df), :bwfl_id => ByRow(==(sensor)))[!, :mean]
-                ll += log_likelihood(θ, gp_model, scaler, y_obs)
+                missing_mask = [!ismissing(val) ? 1 : 0 for val in y_obs]
+                valid_indices = findall(x -> x == 1, missing_mask)
+                ll += log_likelihood(θ, gp_model, scaler, y_obs, valid_indices)
             end
         end
         return lp + ll
