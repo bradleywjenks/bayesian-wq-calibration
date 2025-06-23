@@ -29,7 +29,7 @@ using KernelDensity
 using ProgressMeter
 using Distributed
 addprocs(4)
-@everywhere using Distributions, Random, ProgressMeter, PyCall, DataFrames, MLJ
+@everywhere using Distributions, Random, ProgressMeter, PyCall, DataFrames, MLJ, Surrogates, JLD2, LinearAlgebra
 
 pd = pyimport("pandas")
 np = pyimport("numpy")
@@ -57,8 +57,8 @@ wong_colors = [
 ### 1. load eki results, GP model, operational data, and other MCMC parameters ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.2
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
+δ_s = 0.25
 δ_b = 0.025
 
 # eki results
@@ -69,11 +69,11 @@ bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col 
 
 # gp models
 gp_models_path = RESULTS_PATH * "wq/gp_models/"
-gp_filename_base = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))"
+gp_filename_base = gp_models_path * "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))"
 gp_dict = Dict{String, Dict{String, Any}}()
 for sensor_id ∈ bwfl_ids
     model_file = gp_filename_base * "_$(sensor_id)_gp.jld2"
-    gp_files = JLD2.load(filepath)
+    gp_files = JLD2.load(model_file)
     gp_dict[sensor_id] = Dict(
         "gp_model" => gp_files["surrogates"],
         "scaler" => gp_files["scaler"]
@@ -90,6 +90,7 @@ y_df = subset(wq_df,
 # bulk parameter
 n_ensemble = length(eki_results)
 θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
+mcmc_lb, mcmc_ub = calculate_mcmc_bounds(θ_samples)
 θ_b = mean(θ_samples[:, 1])
 bulk_std = abs(θ_b * δ_b)
 
@@ -115,17 +116,22 @@ end
 @everywhere begin
     function log_prior(θ)
         lp = 0.0
-        if θ[1] > 0 || θ[1] < -Inf
-            return -1e5
+
+        if θ[1] > 0
+            return -Inf
         end
+
         bulk_mean = $(θ_b)
         bulk_std = abs($(θ_b) * $(δ_b))
         bulk_prior = Normal(bulk_mean, bulk_std)
         lp += logpdf(bulk_prior, θ[1])
+
         for (i, (lb, ub)) in enumerate(zip($(θ_w_lb), $(θ_w_ub)))
-            if θ[i+1] < lb || θ[i+1] > ub
-                return -1e5
+
+            if θ[i+1] < $(mcmc_lb)[i+1] || θ[i+1] > $(mcmc_ub)[i+1]
+                return -Inf
             end
+
             lp += -log(ub - lb)
         end
         return lp
@@ -135,24 +141,34 @@ end
 
 
 
+
 ### 2b. define likelihood function ###
 
 @everywhere begin
     function log_likelihood(θ, gp_model, scaler, y_obs, valid_indices)
 
-        n_outputs = size(y_obs, 2)
+        n_outputs = length(y_obs)
 
         # scale input data
-        θ_scaled_matrix = Matrix(MLJ.transform(scaler, DataFrame(θ, :auto)))
-        θ_scaled_vec = [θ_scaled_matrix[i, :] for i in 1:size(θ_scaled_matrix, 1)]
+        X = hcat([θ]...)'
+        X_table = DataFrame(X, :auto)
+        X_scaled_table = MLJ.transform(scaler, X_table)
+        X_scaled_mat = Matrix(X_scaled_table)
+        X_scaled_vec = vec(X_scaled_mat)
 
         # get gp predictions
-        y_pred = zeros(n_outputs)
+        y_pred_μ = zeros(n_outputs)
+        # y_pred_σ = zeros(n_outputs)
         for t in 1:n_outputs
-            y_pred[t] = gp_model[t](θ_scaled_vec)
+            surrogate = gp_model[t]
+            y_pred_μ[t] = surrogate(X_scaled_vec)
+            # y_pred_σ[t] = std_error_at_point(surrogate, X_scaled_vec)
         end
-        residual = y_obs[valid_indices] - y_pred[valid_indices]
-        variance = $(δ_s).^2
+        residual = y_obs[valid_indices] - y_pred_μ[valid_indices]
+        # variance = $(δ_s).^2 .+ y_pred_σ[valid_indices].^2
+        # δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.025)
+        δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.075)
+        variance = δ.^2
         
         return -0.5 * sum((residual.^2) ./ variance)
     end
@@ -189,7 +205,7 @@ end
 
 ### 3. create metropolis-hastings MCMC sampler ###
 
-function run_mcmc(θ_init_list, θ_samples; n_samples=50000, burn_in_frac=0.2, scaling_factors=nothing, parallel=false)
+function run_mcmc(θ_init_list, θ_samples; n_samples=50000, burn_in_frac=0.2, scaling_factors=nothing, parallel=false, λ=0.1)
 
     if isnothing(scaling_factors)
         scaling_factors = 0.1 * ones(n_params)
@@ -204,6 +220,12 @@ function run_mcmc(θ_init_list, θ_samples; n_samples=50000, burn_in_frac=0.2, s
     proposal_dist = MvNormal(zeros(n_params), scaled_cov)
 
     function run_single_chain(θ_init, chain_id)
+
+        # n_params = length(θ_init)
+        # base_proposal_stds = [0.025 * abs(θ_init[1]); λ .* abs.(θ_init[2:end])]
+        # proposal_cov = Diagonal(base_proposal_stds .^ 2)
+        # proposal_dist = MvNormal(zeros(n_params), proposal_cov)
+
         rng = MersenneTwister()
         θ_current = copy(θ_init)
         logp_current = log_posterior(θ_current)
@@ -213,6 +235,7 @@ function run_mcmc(θ_init_list, θ_samples; n_samples=50000, burn_in_frac=0.2, s
 
         for i in 1:n_samples
             θ_proposal = θ_current .+ rand(rng, proposal_dist)
+            θ_proposal = min.(θ_proposal, 0.0)
             logp_proposal = log_posterior(θ_proposal)
             if log(rand(rng)) < (logp_proposal - logp_current)
                 θ_current = θ_proposal
@@ -267,15 +290,17 @@ end
 ### 4. run MCMC algorithm ###
 
 begin
+    # scaling_factors = [1, 2.5, 2.5, 2.5]
+    scaling_factors = [1, 1.5, 1.5]
     # scaling_factors = [0.15, 0.3, 0.3, 0.3]
-    # scaling_factors = [0.5, 0.75, 0.75, 0.75]
     # scaling_factors = [0.2, 0.4, 0.4]
     # scaling_factors = [1, 2.5, 2.5]
-    scaling_factors = [0.1, 0.25, 0.25]
+    # λ = 0.05
     parallel = true
     n_samples = 50000
     θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
     θ_init = vec(mean(θ_samples, dims=1))
+    # θ_init = [-0.66, -0.075, -0.01]
     θ_init_list = [θ_init .+ 0.001 .* randn(length(θ_init)) for _ in 1:4]
 
     for i in 1:length(θ_init_list)
@@ -283,8 +308,7 @@ begin
     end
 end
 
-θ_init_list
-
+θ_init_list[1]
 mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel)
 
 println(mcmc_results["acceptance_rates"])
@@ -293,10 +317,11 @@ r_hat = assess_mcmc_convergence(mcmc_results)
 
 
 
+
 ### 5. results plotting ###
-param_1 = 2
-param_2 = 2
-save_tex = true
+param_1 = 1
+param_2 = 1
+save_tex = false
 contours = false
 thin = 20
 
@@ -906,6 +931,40 @@ begin
         CSV.write(output_path * filename, df)
 
 
+    end
+
+
+
+    function calculate_mcmc_bounds(eki_samples; ub_cap=0.0)
+
+        n_params = size(eki_samples, 2)
+        eki_lbs = [quantile(eki_samples[:, j], 0.025) for j in 1:n_params]
+        eki_ubs = [quantile(eki_samples[:, j], 0.975) for j in 1:n_params]
+        mcmc_lb = zeros(n_params)
+        mcmc_ub = zeros(n_params)
+
+        interval = 0.1
+        push_thresh = 0.05
+
+        for j in 1:n_params
+            lt_raw = eki_lbs[j]
+            ut_raw = eki_ubs[j]
+            
+            lt_r = floor(lt_raw / interval) * interval
+            ut_r = ceil(ut_raw / interval) * interval
+
+            lt_adjusted = abs(lt_raw - lt_r) <= push_thresh ? lt_r - interval : lt_r
+            ut_adjusted = abs(ut_raw - ut_r) <= push_thresh ? ut_r + interval : ut_r
+            
+            mcmc_lb[j] = lt_adjusted
+            mcmc_ub[j] = min(ut_adjusted, ub_cap)
+
+            if mcmc_lb[j] >= mcmc_ub[j]
+                mcmc_lb[j] = mcmc_ub[j] - interval
+            end
+        end
+
+        return mcmc_lb, mcmc_ub
     end
 
 

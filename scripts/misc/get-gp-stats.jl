@@ -6,7 +6,7 @@ using LaTeXStrings
 
 const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/wq/gp_models/"
 data_period = 18
-grouping = "material-age"
+grouping = "material"
 δ_b = 0.025
 δ_s = 0.1
 

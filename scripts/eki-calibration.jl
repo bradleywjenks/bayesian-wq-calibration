@@ -108,7 +108,7 @@ wn_train = epanet.build_model(
 
 
 ### 4. set θ_w groupings and bounds ###
-grouping = "material-age-velocity" # "single", "material", "material-age", "material-age-velocity"
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
 
 θ_w_lb, θ_w_ub = if grouping == "single"
     ([-1.0], [0.0])  # G1: all pipes
@@ -149,7 +149,7 @@ missing_count = sum(ismissing.(ȳ))
 missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 # set noise
-δ_s = 0.2
+δ_s = 0.1
 δ_b = 0.025
 
 # eki calibration
@@ -159,7 +159,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 ### 7. results plotting ###
 p2a, p2b, p2c = plot_eki_progress(stats; save_tex=false)
-p3 = plot_parameter_distribution(θ_init, θ_final, 3, 3; save_tex=false)
+p3 = plot_parameter_distribution(θ_init, θ_final, 1, 1; save_tex=false)
 
 
 
@@ -167,6 +167,10 @@ p3 = plot_parameter_distribution(θ_init, θ_final, 3, 3; save_tex=false)
 eki_results = summarize_eki_results(θ_final, wn_train, datetime_train, exclude_sensors, grouping, ȳ, δ_s; sim_type="chlorine", burn_in=24*4, save_results=true)
 
 
+n_ensemble = length(eki_results)
+θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
+eki_param_min = minimum(θ_samples, dims=1)
+eki_param_max = maximum(θ_samples, dims=1)
 
 
 
@@ -258,8 +262,12 @@ begin
 
         # filter ȳ to only include valid observations
         ȳ_valid = ȳ[valid_indices]
+        δ = max.((ȳ .* δ_s), 0.025)
+        # δ = max.((ȳ .* δ_s), 0.075)
         y_n_valid = length(ȳ_valid)
-        Γ_valid = δ_s.^2 .* I(y_n_valid)
+        Γ_valid = (δ[valid_indices]).^2 .* I(y_n_valid)
+        # Γ_valid = δ_s.^2 .* I(y_n_valid)
+
 
         # prior distributions
         prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * δ_b), -Inf, 0.0)
@@ -372,8 +380,10 @@ begin
             
             # compute negative log-likelihood
             residual = y_m - ȳ
-            # δ = max.((ȳ .* δ_s), 0.05)
-            Γ = (δ_s).^2 .* I(length(y_m))
+            δ = max.((ȳ .* δ_s), 0.025)
+            # δ = max.((ȳ .* δ_s), 0.075)
+            Γ = (δ).^2 .* I(length(y_m))
+            # Γ = (δ_s).^2 .* I(length(y_m))
             
             missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
             valid_indices = findall(x -> x == 1, missing_mask) 

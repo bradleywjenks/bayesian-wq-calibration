@@ -25,6 +25,7 @@ using LatinHypercubeSampling
 using Surrogates
 using MLJ
 using PyCall
+using ProgressMeter
 
 
 pd = pyimport("pandas")
@@ -52,7 +53,7 @@ wong_colors = [
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "single" # "single", "material", "material-age", "material-age-velocity"
+grouping = "material" # "single", "material", "material-age", "material-age-velocity"
 δ_s = 0.1
 δ_b = 0.025
 
@@ -75,23 +76,8 @@ datetime_select = unique_datetime[1:dataset_size + (24 * 4)] # train data size +
 
 
 ### 2. extract parameter-output pairs from eki ensemble ###
-bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
-sensor = bwfl_ids[1]
 
-n_ensemble = length(eki_results)
-θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
-y = get_sensor_y(eki_results, sensor)
-
-# histogram(θ_samples[:, 4], xlabel="θ", ylabel="Frequency", color=wong_colors[4], xtickfont=14, ytickfont=14, xguidefont=18, yguidefont=18)
-
-
-### 3. train and test gp model for selected sensor ###
-x_valid_results = nothing
-x_valid_results =  gp_model_x_valid(θ_samples, y, grouping, sensor; save=true, cv_folds=5)
-
-
-
-### 4. test GP on expanded θ samples ###
+# create additional training data
 wn = epanet.build_model(
     df_2_pd(filter(row -> row.datetime ∈ datetime_select, flow_df)), 
     df_2_pd(filter(row -> row.datetime ∈ datetime_select, pressure_df)), 
@@ -100,8 +86,30 @@ wn = epanet.build_model(
 )
 exclude_sensors = ["BW1", "BW4", "BW7"]
 burn_in = 24 * 4
+n_expanded = 20
+n_output = length(datetime_select) - burn_in
+bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
+n_ensemble = length(eki_results)
+θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
+
+θ_expanded, y_expanded = generate_expanded_training_data(n_expanded, θ_samples, n_output, grouping, wn, datetime_select, bwfl_ids; exclude_sensors=exclude_sensors, burn_in=96)
+
+# get final eki ensemble data
+sensor = bwfl_ids[1]
+y = get_sensor_y(eki_results, sensor)
+θ_samples_tot = vcat(θ_samples, θ_expanded)
+y_tot = vcat(y, y_expanded[sensor])
+
+
+### 3. train and test gp model for selected sensor ###
+x_valid_results = nothing
+x_valid_results =  gp_model_x_valid(θ_samples_tot, y_tot, grouping, sensor; save=true, cv_folds=5)
+
+
+
+### 4. test GP on expanded θ samples ###
 n_expand = 10
-lhs_dist = "normal"
+lhs_dist = "uniform"
 
 test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist=lhs_dist, save_results=true)
 
@@ -114,7 +122,7 @@ y_pred_μ = test_results["y_pred_μ"]
 
 filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor)"
 
-θ_n = 1
+θ_n = 2
 save_tex = true
 begin
     p0 = histogram(x_test[:, θ_n], alpha=0.5, color=wong_colors[2], label="Extended θ", xlabel="θ", ylabel="Frequency", grid=false, size=(750, 400), left_margin=4mm, right_margin=8mm, bottom_margin=4mm, top_margin=4mm, xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legend=:outertopright, legendfont=12, foreground_color_legend=nothing)
@@ -562,6 +570,62 @@ begin
     end
 
 
+    function generate_expanded_training_data(n_samples, θ_samples_eki, n_output, grouping, wn, datetime_select, bwfl_ids; exclude_sensors=nothing, burn_in=96)
+
+        n_params = size(θ_samples_eki, 2)
+        θ_lbs = [quantile(θ_samples_eki[:, j], 0.025) for j in 1:n_params]
+        θ_ubs = [quantile(θ_samples_eki[:, j], 0.975) for j in 1:n_params]
+
+        x_expanded_samples = zeros(n_samples, n_params)
+        y_expanded_outputs = Matrix{Float64}(undef, n_samples, n_output)
+
+        # param 1: Sample directly from EKI ensemble distribution
+        x_expanded_samples[:, 1] = rand(θ_samples_eki[:, 1], n_samples)
+
+        expanded_min_bounds = zeros(n_params - 1)
+        expanded_max_bounds = zeros(n_params - 1)
+
+        for j in 2:n_params
+            lt_raw = θ_lbs[j]
+            ut_raw = θ_ubs[j]
+            lt_r = floor(lt_raw / 0.1) * 0.1
+            ut_r = ceil(ut_raw / 0.1) * 0.1
+            expanded_min_bounds[j-1] = abs(lt_raw - lt_r) <= 0.05 ? lt_r - 0.1 : lt_r
+            expanded_max_bounds[j-1] = min(abs(ut_raw - ut_r) <= 0.05 ? ut_r + 0.1 : ut_r, 0.0)
+        end
+
+        for j in 1:(n_params - 1)
+            println("  Param $(j+1): [$(round(expanded_min_bounds[j], digits=4)), $(round(expanded_max_bounds[j], digits=4))]")
+        end
+
+        ε = 1e-10
+        for j in 2:n_params
+            u = [(i - 1 + rand() * (1 - 2ε)) / n_samples + ε for i in 1:n_samples]
+            shuffle!(u)
+            samples = expanded_min_bounds[j-1] .+ u .* (expanded_max_bounds[j-1] - expanded_min_bounds[j-1])
+            x_expanded_samples[:, j] = samples
+        end
+
+        y_expanded_outputs_dict = Dict{String, Matrix{Float64}}()
+        for s_id in bwfl_ids
+            y_expanded_outputs_dict[s_id] = Matrix{Float64}(undef, n_samples, n_output)
+        end
+
+        p = Progress(n_samples, 1, "Generating samples: ")
+        for i in 1:n_samples
+            y_df_sample = forward_model(wn, x_expanded_samples[i, :], grouping, datetime_select, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
+            
+            for s_id in bwfl_ids
+                y_expanded_outputs_dict[s_id][i,:] = y_df_sample[!, Symbol(s_id)]
+            end
+            next!(p)
+        end
+        finish!(p)
+
+        return x_expanded_samples, y_expanded_outputs_dict
+    end
+
+
 
     function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=nothing, burn_in=nothing, lhs_dist="uniform", save_percent=100, decimal_places=4, tolerance=0.01, save_results=true)
 
@@ -574,9 +638,9 @@ begin
 
         y_test_full = Matrix{Union{Missing, Float64}}(undef, n_expand, n_output)
         for i in 1:n_expand
-            y_df_sample = forward_model(wn, x_test[i, :], grouping, datetime_select, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
-            if Symbol(sensor) ∈ propertynames(y_df_sample)
-                 y_test_full[i,:] = y_df_sample[!, Symbol(sensor)]
+            y_df = forward_model(wn, x_test[i, :], grouping, datetime_select, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
+            if Symbol(sensor) ∈ propertynames(y_df)
+                 y_test_full[i,:] = y_df[!, Symbol(sensor)]
             else
                 @warn "Sensor $(sensor) not found in y_df for sample $i. Marking this row as missing."
                 y_test_full[i,:] .= missing 
