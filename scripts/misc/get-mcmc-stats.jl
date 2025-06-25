@@ -7,13 +7,15 @@ const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results
 data_period = 18
 grouping = "material"
 δ_b = 0.025
-δ_s = 0.1
+δ_s = 0.25
 
 # determine parameter names based on grouping
 param_names = if grouping == "material-age"
     ["bulk", "G1", "G2", "G3"]
 elseif grouping == "material"
     ["bulk", "G1", "G2"]
+elseif grouping == "single"
+    ["bulk", "G1"]
 else
     error("Unknown grouping: $grouping")
 end

@@ -6,9 +6,9 @@ using LaTeXStrings
 
 const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/wq/gp_models/"
 data_period = 18
-grouping = "material"
+grouping = "material-age-velocity"
 δ_b = 0.025
-δ_s = 0.1
+δ_s = 0.25
 
 bwfl_ids = ["BW2_1", "BW3", "BW5_1", "BW6", "BW9", "BW12"]
 

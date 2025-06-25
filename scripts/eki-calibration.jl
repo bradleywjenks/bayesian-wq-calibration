@@ -108,7 +108,7 @@ wn_train = epanet.build_model(
 
 
 ### 4. set θ_w groupings and bounds ###
-grouping = "material" # "single", "material", "material-age", "material-age-velocity"
+grouping = "material-age-velocity" # "single", "material", "material-age", "material-age-velocity"
 
 θ_w_lb, θ_w_ub = if grouping == "single"
     ([-1.0], [0.0])  # G1: all pipes
@@ -125,7 +125,7 @@ end
 
 
 ### 5. create and test forward model F(θ) ###
-θ_w = (θ_w_lb + θ_w_ub) ./ 2
+θ_w = (θ_w_lb + θ_w_ub) ./ 4
 θ = [θ_b_train; θ_w]
 exclude_sensors = ["BW1", "BW4", "BW7"]
 burn_in = 24 * 4
@@ -149,7 +149,7 @@ missing_count = sum(ismissing.(ȳ))
 missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 # set noise
-δ_s = 0.1
+δ_s = 0.25
 δ_b = 0.025
 
 # eki calibration
@@ -262,15 +262,15 @@ begin
 
         # filter ȳ to only include valid observations
         ȳ_valid = ȳ[valid_indices]
-        δ = max.((ȳ .* δ_s), 0.025)
-        # δ = max.((ȳ .* δ_s), 0.075)
+        # δ = max.((ȳ .* δ_s), 0.025)
+        δ = max.((ȳ .* δ_s), 0.05)
         y_n_valid = length(ȳ_valid)
         Γ_valid = (δ[valid_indices]).^2 .* I(y_n_valid)
         # Γ_valid = δ_s.^2 .* I(y_n_valid)
 
 
         # prior distributions
-        prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * δ_b), -Inf, 0.0)
+        prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * δ_b), θ_b_train - 3*abs(θ_b * δ_b), θ_b_train + 3*abs(θ_b * δ_b))
         for i = 1:θ_n-1
             if wall_prior == "uniform"
                 prior_wall = constrained_gaussian("θ_w_$i", (θ_w_lb[i] + θ_w_ub[i]) ./ 2, abs((θ_w_ub[i] - θ_w_lb[i]) ./ 3.333), θ_w_lb[i], θ_w_ub[i])
@@ -380,8 +380,8 @@ begin
             
             # compute negative log-likelihood
             residual = y_m - ȳ
-            δ = max.((ȳ .* δ_s), 0.025)
-            # δ = max.((ȳ .* δ_s), 0.075)
+            # δ = max.((ȳ .* δ_s), 0.025)
+            δ = max.((ȳ .* δ_s), 0.05)
             Γ = (δ).^2 .* I(length(y_m))
             # Γ = (δ_s).^2 .* I(length(y_m))
             

@@ -53,7 +53,7 @@ wong_colors = [
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
-grouping = "material" # "single", "material", "material-age", "material-age-velocity"
+grouping = "single" # "single", "material", "material-age", "material-age-velocity"
 δ_s = 0.1
 δ_b = 0.025
 
@@ -588,10 +588,10 @@ begin
         for j in 2:n_params
             lt_raw = θ_lbs[j]
             ut_raw = θ_ubs[j]
-            lt_r = floor(lt_raw / 0.1) * 0.1
-            ut_r = ceil(ut_raw / 0.1) * 0.1
-            expanded_min_bounds[j-1] = abs(lt_raw - lt_r) <= 0.05 ? lt_r - 0.1 : lt_r
-            expanded_max_bounds[j-1] = min(abs(ut_raw - ut_r) <= 0.05 ? ut_r + 0.1 : ut_r, 0.0)
+            lt_r = floor(lt_raw / 0.05) * 0.05
+            ut_r = ceil(ut_raw / 0.05) * 0.05
+            expanded_min_bounds[j-1] = abs(lt_raw - lt_r) <= 0.025 ? lt_r - 0.05 : lt_r
+            expanded_max_bounds[j-1] = min(abs(ut_raw - ut_r) <= 0.025 ? ut_r + 0.05 : ut_r, 0.0)
         end
 
         for j in 1:(n_params - 1)

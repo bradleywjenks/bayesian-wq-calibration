@@ -167,7 +167,7 @@ end
         residual = y_obs[valid_indices] - y_pred_μ[valid_indices]
         # variance = $(δ_s).^2 .+ y_pred_σ[valid_indices].^2
         # δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.025)
-        δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.075)
+        δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.05)
         variance = δ.^2
         
         return -0.5 * sum((residual.^2) ./ variance)
@@ -290,30 +290,28 @@ end
 ### 4. run MCMC algorithm ###
 
 begin
-    # scaling_factors = [1, 2.5, 2.5, 2.5]
     scaling_factors = [1, 1.5, 1.5]
-    # scaling_factors = [0.15, 0.3, 0.3, 0.3]
+    # scaling_factors = [1, 1.5, 1.5]
+    # scaling_factors = [0.25, 1.5, 0.25, 0.15]
+    # scaling_factors = [0.1, 0.5, 1.0]
     # scaling_factors = [0.2, 0.4, 0.4]
-    # scaling_factors = [1, 2.5, 2.5]
-    # λ = 0.05
+    λ = 0.1
     parallel = true
-    n_samples = 50000
+    n_samples = 100000
     θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
     θ_init = vec(mean(θ_samples, dims=1))
-    # θ_init = [-0.66, -0.075, -0.01]
-    θ_init_list = [θ_init .+ 0.001 .* randn(length(θ_init)) for _ in 1:4]
+    θ_init = [-0.66, -0.075, -0.055]
+    θ_init_list = [θ_init .+ 0.0001 .* randn(length(θ_init)) for _ in 1:4]
 
     for i in 1:length(θ_init_list)
         θ_init_list[i] = [val > 0 ? 0.0 : val for val in θ_init_list[i]]
     end
 end
 
-θ_init_list[1]
-mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel)
+mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel, λ=λ)
 
 println(mcmc_results["acceptance_rates"])
 r_hat = assess_mcmc_convergence(mcmc_results)
-
 
 
 
@@ -943,8 +941,8 @@ begin
         mcmc_lb = zeros(n_params)
         mcmc_ub = zeros(n_params)
 
-        interval = 0.1
-        push_thresh = 0.05
+        interval = 0.05
+        push_thresh = 0.025
 
         for j in 1:n_params
             lt_raw = eki_lbs[j]

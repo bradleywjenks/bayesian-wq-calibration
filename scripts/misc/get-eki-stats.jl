@@ -8,7 +8,7 @@ const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results
 data_period = 18
 grouping = "material"
 δ_b = 0.025
-δ_s = 0.1
+δ_s = 0.25
 
 # load eki results
 filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s)).jld2"
