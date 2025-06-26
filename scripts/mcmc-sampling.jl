@@ -52,13 +52,16 @@ wong_colors = [
 ]
 
 
+
+# NB: MUST RUN FUNCTIONS BLOCK BEFORE EXECUTING MAIN SCRIPT #
+
 ########## MAIN SCRIPT ##########
 
 ### 1. load eki results, GP model, operational data, and other MCMC parameters ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
 grouping = "material" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.25
+δ_s = 0.25 # 0.1, 0.25
 δ_b = 0.025
 
 # eki results
@@ -205,7 +208,7 @@ end
 
 ### 3. create metropolis-hastings MCMC sampler ###
 
-function run_mcmc(θ_init_list, θ_samples; n_samples=50000, burn_in_frac=0.2, scaling_factors=nothing, parallel=false, λ=0.1)
+function run_mcmc(θ_init_list, θ_samples; n_samples=50000, burn_in_frac=0.2, scaling_factors=nothing, parallel=false)
 
     if isnothing(scaling_factors)
         scaling_factors = 0.1 * ones(n_params)
@@ -220,11 +223,6 @@ function run_mcmc(θ_init_list, θ_samples; n_samples=50000, burn_in_frac=0.2, s
     proposal_dist = MvNormal(zeros(n_params), scaled_cov)
 
     function run_single_chain(θ_init, chain_id)
-
-        # n_params = length(θ_init)
-        # base_proposal_stds = [0.025 * abs(θ_init[1]); λ .* abs.(θ_init[2:end])]
-        # proposal_cov = Diagonal(base_proposal_stds .^ 2)
-        # proposal_dist = MvNormal(zeros(n_params), proposal_cov)
 
         rng = MersenneTwister()
         θ_current = copy(θ_init)
@@ -290,25 +288,19 @@ end
 ### 4. run MCMC algorithm ###
 
 begin
-    scaling_factors = [1, 1.5, 1.5]
-    # scaling_factors = [1, 1.5, 1.5]
-    # scaling_factors = [0.25, 1.5, 0.25, 0.15]
-    # scaling_factors = [0.1, 0.5, 1.0]
-    # scaling_factors = [0.2, 0.4, 0.4]
-    λ = 0.1
+    scaling_factors = [0.2, 0.4, 0.4]
     parallel = true
     n_samples = 100000
     θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
     θ_init = vec(mean(θ_samples, dims=1))
     θ_init = [-0.66, -0.075, -0.055]
     θ_init_list = [θ_init .+ 0.0001 .* randn(length(θ_init)) for _ in 1:4]
-
     for i in 1:length(θ_init_list)
         θ_init_list[i] = [val > 0 ? 0.0 : val for val in θ_init_list[i]]
     end
 end
 
-mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel, λ=λ)
+mcmc_results = run_mcmc(θ_init_list, θ_samples; n_samples=n_samples, scaling_factors=scaling_factors, parallel=parallel)
 
 println(mcmc_results["acceptance_rates"])
 r_hat = assess_mcmc_convergence(mcmc_results)
@@ -337,6 +329,8 @@ end
 export_mcmc_samples(mcmc_results, param_1, thin_to=5000)
 
  
+
+
 
 
 

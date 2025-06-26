@@ -48,13 +48,16 @@ wong_colors = [
 ]
 
 
+# NB: MUST RUN FUNCTIONS BLOCK BEFORE EXECUTING MAIN SCRIPT #
+
+
 ########## MAIN SCRIPT ##########
 
 ### 1. load eki calibration results and operational data ###
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
 grouping = "single" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.1
+δ_s = 0.1 # 0.1, 0.25
 δ_b = 0.025
 
 # eki results
@@ -110,7 +113,6 @@ x_valid_results =  gp_model_x_valid(θ_samples_tot, y_tot, grouping, sensor; sav
 ### 4. test GP on expanded θ samples ###
 n_expand = 10
 lhs_dist = "uniform"
-
 test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist=lhs_dist, save_results=true)
 
 
@@ -119,15 +121,9 @@ test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["sc
 x_test = test_results["x_test"]
 y_test = test_results["y_test"]
 y_pred_μ = test_results["y_pred_μ"]
-
 filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s))_$(sensor)"
 
-θ_n = 2
 save_tex = true
-begin
-    p0 = histogram(x_test[:, θ_n], alpha=0.5, color=wong_colors[2], label="Extended θ", xlabel="θ", ylabel="Frequency", grid=false, size=(750, 400), left_margin=4mm, right_margin=8mm, bottom_margin=4mm, top_margin=4mm, xtickfont=12, ytickfont=12, xguidefont=14, yguidefont=14, legend=:outertopright, legendfont=12, foreground_color_legend=nothing)
-    p0 = histogram!(θ_samples[:, θ_n], alpha=0.5, color=wong_colors[3], label="EKI θ")
-end
 p1 = plot_parity(y_test, y_pred_μ, filename, save_tex=save_tex)
 p2 = plot_error_histogram(y_test, y_pred_μ, filename, save_tex=save_tex)
 

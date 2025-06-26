@@ -28,10 +28,6 @@ using PyCall
 using JLD2
 using LaTeXStrings
 
-# pgfplotsx()
-# PGFPlotsX.latexengine!(PGFPlotsX.PDFLATEX)
-# ENV["PGFPLOTSX_BACKEND"] = "pdf"
-
 pd = pyimport("pandas")
 np = pyimport("numpy")
 data = pyimport("bayesian_wq_calibration.data")
@@ -52,6 +48,8 @@ wong_colors = [
     RGB(204/255, 121/255, 167/255)     # wong-purple
 ]
 
+
+# NB: MUST RUN FUNCTIONS BLOCK BEFORE EXECUTING MAIN SCRIPT #
 
 ########## MAIN SCRIPT ##########
 
@@ -157,20 +155,17 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 
 
+
 ### 7. results plotting ###
 p2a, p2b, p2c = plot_eki_progress(stats; save_tex=false)
 p3 = plot_parameter_distribution(θ_init, θ_final, 1, 1; save_tex=false)
 
 
 
+
 ### 8. save θ, ȳ, and L data ###
 eki_results = summarize_eki_results(θ_final, wn_train, datetime_train, exclude_sensors, grouping, ȳ, δ_s; sim_type="chlorine", burn_in=24*4, save_results=true)
 
-
-n_ensemble = length(eki_results)
-θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
-eki_param_min = minimum(θ_samples, dims=1)
-eki_param_max = maximum(θ_samples, dims=1)
 
 
 
