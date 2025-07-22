@@ -106,6 +106,7 @@ wn_train = epanet.build_model(
 
 
 ### 4. set θ_w groupings and bounds ###
+# grouping = "bulk only"
 grouping = "material-age-velocity" # "single", "material", "material-age", "material-age-velocity"
 
 θ_w_lb, θ_w_ub = if grouping == "single"
@@ -116,6 +117,8 @@ elseif grouping == "material-age"
     ([-1.0, -1.0, -0.5], [0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age, G2: metallic + ≤ mean pipe age, G3: cement + plastic
 elseif grouping == "material-age-velocity"
     ([-1.0, -1.0, -1.0, -1.0, -0.5], [0.0, 0.0, 0.0, 0.0, 0.0])  # G1: metallic + > mean pipe age + ≤ mean velocity, G2: metallic + > mean pipe age + > mean velocity, G3: metallic + ≤ mean pipe age + ≤ mean velocity, G4: metallic + ≤ mean pipe age + > mean velocity, G5: cement + plastic
+elseif grouping == "bulk only"
+    nothing, nothing  # G1: all pipes
 else
     error("Unsupported grouping: $grouping")
 end
@@ -123,8 +126,12 @@ end
 
 
 ### 5. create and test forward model F(θ) ###
-θ_w = (θ_w_lb + θ_w_ub) ./ 4
-θ = [θ_b_train; θ_w]
+if grouping != "bulk only"
+    θ_w = (θ_w_lb + θ_w_ub) ./ 4
+    θ = [θ_b_train; θ_w]
+else
+    θ = [θ_b_train]
+end
 exclude_sensors = ["BW1", "BW4", "BW7"]
 burn_in = 24 * 4
 y = forward_model(wn_train, θ, grouping, datetime_train, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
@@ -147,8 +154,8 @@ missing_count = sum(ismissing.(ȳ))
 missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 # set noise
-δ_s = 0.25
-δ_b = 0.025
+δ_s = 0.1
+δ_b = 0.05
 
 # eki calibration
 θ_init, θ_final, stats = run_eki_calibration(θ_b_train, θ_w_lb, θ_w_ub, wn_train, datetime_train, exclude_sensors, grouping, ȳ; burn_in=burn_in, δ_s=δ_s, δ_b=δ_b)
@@ -158,7 +165,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 ### 7. results plotting ###
 p2a, p2b, p2c = plot_eki_progress(stats; save_tex=false)
-p3 = plot_parameter_distribution(θ_init, θ_final, 1, 1; save_tex=false)
+p3 = plot_parameter_distribution(θ_init, θ_final, 5, 5; save_tex=false)
 
 
 
@@ -208,8 +215,13 @@ begin
 
     function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=96)
 
-        θ_b = θ[1]
-        θ_w = θ[2:end]
+        if grouping == "bulk only"
+            θ_b = θ[1]
+            θ_w = nothing
+        else
+            θ_b = θ[1]
+            θ_w = θ[2:end]
+        end
         wn = epanet.set_reaction_parameters(wn, grouping, θ_w, θ_b)
         y = epanet.epanet_simulator(wn, sim_type, datetime)
         
@@ -248,9 +260,14 @@ begin
         rng = Random.seed!(42)
 
         # parameter data
-        θ_w_1 = (θ_w_lb + θ_w_ub) ./ 2
-        θ_1 = [θ_b; θ_w_1]
+        if grouping == "bulk only"
+            θ_1 = [θ_b]
+        else
+            θ_w_1 = (θ_w_lb + θ_w_ub) ./ 2
+            θ_1 = [θ_b; θ_w_1]
+        end
         θ_n = length(θ_1)
+        # n_ensemble = θ_n * 10
         
         missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
         valid_indices = findall(x -> x == 1, missing_mask)
@@ -258,20 +275,22 @@ begin
         # filter ȳ to only include valid observations
         ȳ_valid = ȳ[valid_indices]
         # δ = max.((ȳ .* δ_s), 0.025)
-        δ = max.((ȳ .* δ_s), 0.05)
+        # δ = max.((ȳ .* δ_s), 0.05)
         y_n_valid = length(ȳ_valid)
-        Γ_valid = (δ[valid_indices]).^2 .* I(y_n_valid)
-        # Γ_valid = δ_s.^2 .* I(y_n_valid)
+        # Γ_valid = (δ[valid_indices]).^2 .* I(y_n_valid)
+        Γ_valid = δ_s.^2 .* I(y_n_valid)
 
 
         # prior distributions
         prior = constrained_gaussian("θ_b", θ_b_train, abs(θ_b * δ_b), θ_b_train - 3*abs(θ_b * δ_b), θ_b_train + 3*abs(θ_b * δ_b))
-        for i = 1:θ_n-1
-            if wall_prior == "uniform"
-                prior_wall = constrained_gaussian("θ_w_$i", (θ_w_lb[i] + θ_w_ub[i]) ./ 2, abs((θ_w_ub[i] - θ_w_lb[i]) ./ 3.333), θ_w_lb[i], θ_w_ub[i])
-                prior = combine_distributions([prior, prior_wall])
-            else
-                @error "$wall_prior distribution not available."
+        if grouping != "bulk only"
+            for i = 1:θ_n-1
+                if wall_prior == "uniform"
+                    prior_wall = constrained_gaussian("θ_w_$i", (θ_w_lb[i] + θ_w_ub[i]) ./ 2, abs((θ_w_ub[i] - θ_w_lb[i]) ./ 3), θ_w_lb[i], θ_w_ub[i])
+                    prior = combine_distributions([prior, prior_wall])
+                else
+                    @error "$wall_prior distribution not available."
+                end
             end
         end
 
@@ -281,9 +300,15 @@ begin
             ensemble_0,
             ȳ_valid,
             Γ_valid,
-            Inversion(),
-            scheduler = DataMisfitController(on_terminate="stop");
-            rng=rng,
+            TransformInversion(),
+            # Inversion(),
+            # scheduler = DefaultScheduler(),
+            scheduler = DataMisfitController(on_terminate = "stop");
+            # scheduler = DataMisfitController(
+            #     terminate_at = 1.01,
+            #     on_terminate = "stop"
+            # );
+            rng = rng,
         )
 
         # run EKI iterations
@@ -376,9 +401,9 @@ begin
             # compute negative log-likelihood
             residual = y_m - ȳ
             # δ = max.((ȳ .* δ_s), 0.025)
-            δ = max.((ȳ .* δ_s), 0.05)
-            Γ = (δ).^2 .* I(length(y_m))
-            # Γ = (δ_s).^2 .* I(length(y_m))
+            # δ = max.((ȳ .* δ_s), 0.05)
+            # Γ = (δ).^2 .* I(length(y_m))
+            Γ = (δ_s).^2 .* I(length(y_m))
             
             missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
             valid_indices = findall(x -> x == 1, missing_mask) 

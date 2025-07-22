@@ -175,21 +175,22 @@ def set_reaction_parameters(wn, grouping, wall_coeffs, bulk_coeff):
     wn.options.reaction.bulk_coeff = (bulk_coeff/3600/24) # (FROM BW)
 
     # wall decay
-    if not isinstance(wall_coeffs, dict):
-        wall_coeffs = decision_variables_to_dict(grouping, wall_coeffs)
+    if grouping != 'bulk only':
+        if not isinstance(wall_coeffs, dict):
+            wall_coeffs = decision_variables_to_dict(grouping, wall_coeffs)
 
-    if grouping == 'single':
-        wn.options.reaction.wall_coeff = (wall_coeffs['G1']/3600/24)
-    else:
-        group_df = pd.read_csv(RESULTS_DIR / 'wq/pipe_groups.csv')
+        if grouping == 'single':
+            wn.options.reaction.wall_coeff = (wall_coeffs['G1']/3600/24)
+        else:
+            group_df = pd.read_csv(RESULTS_DIR / 'wq/pipe_groups.csv')
 
-        for name, link in wn.links():
-            if isinstance(link, wntr.network.Pipe):
-                group = group_df[group_df['model_id'] == name][grouping].values[0]
-                try:
-                    link.wall_coeff = wall_coeffs[group]/3600/24
-                except:
-                    logging.error(f"Wall grouping {group} not valid for {name}.")
+            for name, link in wn.links():
+                if isinstance(link, wntr.network.Pipe):
+                    group = group_df[group_df['model_id'] == name][grouping].values[0]
+                    try:
+                        link.wall_coeff = wall_coeffs[group]/3600/24
+                    except:
+                        logging.error(f"Wall grouping {group} not valid for {name}.")
 
     return wn
 
