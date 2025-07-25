@@ -61,8 +61,8 @@ wong_colors = [
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
 grouping = "material" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.25 # 0.1, 0.25
-δ_b = 0.025
+δ_s = 0.2 # 0.1, 0.2
+δ_b = 0.05
 
 # eki results
 eki_results_path = RESULTS_PATH * "wq/eki_calibration/"
@@ -170,8 +170,8 @@ end
         residual = y_obs[valid_indices] - y_pred_μ[valid_indices]
         # variance = $(δ_s).^2 .+ y_pred_σ[valid_indices].^2
         # δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.025)
-        δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.05)
-        variance = δ.^2
+        # δ = max.((y_obs[valid_indices] .* $(δ_s)), 0.05)
+        variance = $(δ_s).^2
         
         return -0.5 * sum((residual.^2) ./ variance)
     end

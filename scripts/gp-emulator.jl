@@ -57,8 +57,8 @@ wong_colors = [
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
 grouping = "single" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.1 # 0.1, 0.25
-δ_b = 0.025
+δ_s = 0.2 # 0.1, 0.2
+δ_b = 0.05
 
 # eki results
 eki_results_path = RESULTS_PATH * "/wq/eki_calibration/"
@@ -89,31 +89,39 @@ wn = epanet.build_model(
 )
 exclude_sensors = ["BW1", "BW4", "BW7"]
 burn_in = 24 * 4
-n_expanded = 20
 n_output = length(datetime_select) - burn_in
 bwfl_ids = [string(col) for col in propertynames(eki_results[1]["y_df"]) if col != :datetime]
 n_ensemble = length(eki_results)
 θ_samples = hcat([eki_results[i]["θ"] for i in 1:n_ensemble]...)'
 
-θ_expanded, y_expanded = generate_expanded_training_data(n_expanded, θ_samples, n_output, grouping, wn, datetime_select, bwfl_ids; exclude_sensors=exclude_sensors, burn_in=96)
+
+# # Filter outliers only on the lower bound using IQR method
+# param_data = θ_samples[:, 4]
+# Q1, Q3 = quantile(param_data, [0.25, 0.75])
+# IQR = Q3 - Q1
+# filtered_data = param_data[param_data .>= Q1 - 1.5*IQR]
+# μ, σ = mean(filtered_data), std(filtered_data)
+# fitted_dist = Truncated(Normal(μ, σ), -Inf, 0.0)
+# x_range = range(minimum(filtered_data), 0, length=100)
+# histogram(filtered_data, normalize=:pdf, alpha=0.6, label="Filtered Data")
+# plot!(x_range, pdf.(fitted_dist, x_range), linewidth=2, label="Fitted Truncated Normal")
+
+
 
 # get final eki ensemble data
 sensor = bwfl_ids[1]
 y = get_sensor_y(eki_results, sensor)
-θ_samples_tot = vcat(θ_samples, θ_expanded)
-y_tot = vcat(y, y_expanded[sensor])
 
 
 ### 3. train and test gp model for selected sensor ###
 x_valid_results = nothing
-x_valid_results =  gp_model_x_valid(θ_samples_tot, y_tot, grouping, sensor; save=true, cv_folds=5)
+x_valid_results =  gp_model_x_valid(θ_samples, y, grouping, sensor; save=true, cv_folds=5)
 
 
 
-### 4. test GP on expanded θ samples ###
-n_expand = 10
-lhs_dist = "uniform"
-test_results = test_expanded_θ(x_valid_results["gp_model"], x_valid_results["scaler"], n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, lhs_dist=lhs_dist, save_results=true)
+### 4. test GP on new θ samples ###
+n_test = 10
+test_results = test_gp_model(x_valid_results["gp_model"], x_valid_results["scaler"], n_test, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=exclude_sensors, burn_in=burn_in, save_results=true)
 
 
 
@@ -569,8 +577,8 @@ begin
     function generate_expanded_training_data(n_samples, θ_samples_eki, n_output, grouping, wn, datetime_select, bwfl_ids; exclude_sensors=nothing, burn_in=96)
 
         n_params = size(θ_samples_eki, 2)
-        θ_lbs = [quantile(θ_samples_eki[:, j], 0.025) for j in 1:n_params]
-        θ_ubs = [quantile(θ_samples_eki[:, j], 0.975) for j in 1:n_params]
+        θ_lbs = [quantile(θ_samples_eki[:, j], 0.05) for j in 1:n_params]
+        θ_ubs = [quantile(θ_samples_eki[:, j], 0.95) for j in 1:n_params]
 
         x_expanded_samples = zeros(n_samples, n_params)
         y_expanded_outputs = Matrix{Float64}(undef, n_samples, n_output)
@@ -623,17 +631,33 @@ begin
 
 
 
-    function test_expanded_θ(gp_model, scaler, n_expand, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=nothing, burn_in=nothing, lhs_dist="uniform", save_percent=100, decimal_places=4, tolerance=0.01, save_results=true)
+    function test_gp_model(gp_model, scaler, n_test, θ_samples, y, grouping, sensor, wn, datetime_select; exclude_sensors=nothing, burn_in=nothing, save_percent=100, decimal_places=4, tolerance=0.01, save_results=true)
 
         n_output = size(y, 2)
-        θ_means = vec(mean(θ_samples, dims=1))
-        θ_stds = vec(std(θ_samples, dims=1))
-        x_test = latin_hypercube_sampling(θ_means, θ_stds, n_expand, dist_type=lhs_dist)
+        n_params = size(θ_samples, 2)
+        x_test = zeros(n_test, n_params)
+        
+        # Sample from truncated normal distributions for each parameter
+        for j in 1:n_params
+            # Filter outliers using IQR method
+            param_data = θ_samples[:, j]
+            Q1, Q3 = quantile(param_data, [0.25, 0.75])
+            IQR = Q3 - Q1
+            filtered_data = param_data[param_data .>= Q1 - 1.5*IQR]
+            
+            # Fit normal to filtered data, then truncate
+            μ, σ = mean(filtered_data), std(filtered_data)
+            fitted_dist = Truncated(Normal(μ, σ), -Inf, 0.0)
+            
+            # Draw n_test samples
+            x_test[:, j] = rand(fitted_dist, n_test)
+        end
+        
         x_test_scaled_matrix = Matrix(MLJ.transform(scaler, DataFrame(x_test, :auto)))
         x_test_scaled_vec = [x_test_scaled_matrix[i, :] for i in 1:size(x_test_scaled_matrix, 1)]
 
-        y_test_full = Matrix{Union{Missing, Float64}}(undef, n_expand, n_output)
-        for i in 1:n_expand
+        y_test_full = Matrix{Union{Missing, Float64}}(undef, n_test, n_output)
+        for i in 1:n_test
             y_df = forward_model(wn, x_test[i, :], grouping, datetime_select, exclude_sensors; sim_type="chlorine", burn_in=burn_in)
             if Symbol(sensor) ∈ propertynames(y_df)
                  y_test_full[i,:] = y_df[!, Symbol(sensor)]
@@ -667,8 +691,8 @@ begin
         )
 
         if save_percent < 100
-            n_save = round(Int, n_expand * save_percent / 100)
-            save_indices = randperm(n_expand)[1:n_save]
+            n_save = round(Int, n_test * save_percent / 100)
+            save_indices = randperm(n_test)[1:n_save]
 
             results_dict = Dict(
                 "x_test" => x_test[save_indices, :],
