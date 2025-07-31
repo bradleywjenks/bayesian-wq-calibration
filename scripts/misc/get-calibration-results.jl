@@ -48,18 +48,18 @@ cl_df_test = subset(cl_df, :datetime => ByRow(in(datetime_test)))
 
 # simulate cl concentrations
 grouping = "material-age"
-δ_s = 0.25
-δ_b = 0.025
+δ_s = 0.05
+δ_b = 0.05
 
 
-if δ_s == 0.25
-    θ_mean = [-0.665, -0.094, -0.053, 0.0]
-    θ_2_5 = [-0.621, -0.071, 0.0, 0.0]
-    θ_97_5 = [-0.681, -0.121, -0.073, -0.014]
-elseif δ_s == 0.1
-    θ_mean = [-0.65, -0.125, -0.035, -0.001]
-    θ_2_5 = [-0.648, -0.120, -0.025, 0.0]
-    θ_97_5 = [-0.652, -0.130, -0.045, -0.003]
+if δ_s == 0.2
+    θ_mean = [-0.644, -0.077, -0.040, -0.121]
+    θ_2_5 = [-0.550, -0.017, -0.016, -0.003]
+    θ_97_5 = [-0.729, -0.121, -0.061, -0.340]
+elseif δ_s == 0.05
+    θ_mean = [-0.660, -0.091, -0.053, -0.052]
+    θ_2_5 = [-0.639, -0.086, -0.047, -0.034]
+    θ_97_5 = [-0.677, -0.097, -0.057, -0.071]
 end
 
 # run simulations for all three parameter sets
@@ -150,42 +150,44 @@ println("% residuals within 0.1: $(round(pct_within_01, digits=2))%")
 
 ########## FUNCTIONS ##########
 
-function pd_2_df(df_pd)
-    df= DataFrame()
-    for col in df_pd.columns
-        df[!, col] = getproperty(df_pd, col).values
-    end
-    return df
-end
-
-function df_2_pd(df)
-    df_clean = mapcols(col -> coalesce.(col, np.nan), df)
-    return pd.DataFrame(Dict(col => df_clean[!, col] for col in names(df_clean)))
-end
-
-function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=96)
-
-    θ_b = θ[1]
-    θ_w = θ[2:end]
-    wn = epanet.set_reaction_parameters(wn, grouping, θ_w, θ_b)
-    y = epanet.epanet_simulator(wn, sim_type, datetime)
-    
-    if sim_type == "chlorine"
-        bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
-        model_ids = Vector{String}(data.sensor_model_id("wq")["model_id"].values)
-        sensor_model_id = [model_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
-        sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
-        y_df = pd_2_df(y.chlorine)
-        y_df = y_df[:, Symbol.(sensor_model_id)]
-        y_df = y_df[burn_in + 1:end, :]
-        insertcols!(y_df, 1, :datetime => datetime[burn_in + 1:end])
-        for (old_name, new_name) in zip(Symbol.(sensor_model_id), Symbol.(sensor_bwfl_id))
-            rename!(y_df, old_name => new_name)
+begin
+    function pd_2_df(df_pd)
+        df= DataFrame()
+        for col in df_pd.columns
+            df[!, col] = getproperty(df_pd, col).values
         end
-    else
-        @error("Unsupported simulation type: $sim_type")
+        return df
     end
 
-    return y_df
+    function df_2_pd(df)
+        df_clean = mapcols(col -> coalesce.(col, np.nan), df)
+        return pd.DataFrame(Dict(col => df_clean[!, col] for col in names(df_clean)))
+    end
 
+    function forward_model(wn, θ, grouping, datetime, exclude_sensors; sim_type="chlorine", burn_in=96)
+
+        θ_b = θ[1]
+        θ_w = θ[2:end]
+        wn = epanet.set_reaction_parameters(wn, grouping, θ_w, θ_b)
+        y = epanet.epanet_simulator(wn, sim_type, datetime)
+        
+        if sim_type == "chlorine"
+            bwfl_ids = Vector{String}(data.sensor_model_id("wq")["bwfl_id"].values)
+            model_ids = Vector{String}(data.sensor_model_id("wq")["model_id"].values)
+            sensor_model_id = [model_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+            sensor_bwfl_id = [bwfl_ids[i] for i in 1:length(bwfl_ids) if !(bwfl_ids[i] in exclude_sensors)]
+            y_df = pd_2_df(y.chlorine)
+            y_df = y_df[:, Symbol.(sensor_model_id)]
+            y_df = y_df[burn_in + 1:end, :]
+            insertcols!(y_df, 1, :datetime => datetime[burn_in + 1:end])
+            for (old_name, new_name) in zip(Symbol.(sensor_model_id), Symbol.(sensor_bwfl_id))
+                rename!(y_df, old_name => new_name)
+            end
+        else
+            @error("Unsupported simulation type: $sim_type")
+        end
+
+        return y_df
+
+    end
 end

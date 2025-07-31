@@ -5,17 +5,17 @@ using Printf
 
 const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/"
 data_period = 18
-grouping = "material"
-δ_b = 0.025
-δ_s = 0.25
+grouping = "material-age"
+δ_b = 0.05
+δ_s = 0.2
 
 # determine parameter names based on grouping
 param_names = if grouping == "material-age"
-    ["bulk", "G1", "G2", "G3"]
+    ["B", "G1", "G2", "G3"]
 elseif grouping == "material"
-    ["bulk", "G1", "G2"]
+    ["B", "G1", "G2"]
 elseif grouping == "single"
-    ["bulk", "G1"]
+    ["B", "G1"]
 else
     error("Unknown grouping: $grouping")
 end
@@ -26,7 +26,7 @@ for param_name in param_names
     
     # load the MCMC samples
     samples_df = CSV.read(filepath, DataFrame)
-    samples = samples_df[:, 1]
+    samples = samples_df[:, 2]
     
     # compute statistics
     mean_val = mean(samples)

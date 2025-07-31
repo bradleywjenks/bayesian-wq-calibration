@@ -58,7 +58,7 @@ wong_colors = [
 data_period = 18 # (aug. 2024)
 padded_period = lpad(data_period, 2, "0")
 grouping = "material-age" # "single", "material", "material-age", "material-age-velocity"
-δ_s = 0.2 # 0.1, 0.2
+δ_s = 0.05 # 0.05, 0.1, 0.2
 δ_b = 0.05
 
 # EKI results
@@ -195,7 +195,7 @@ end
 gp_models_dict = Dict(sensor_id => gp_dict[sensor_id]["gp_model"] for sensor_id in keys(observations))
 scalers_dict = Dict(sensor_id => gp_dict[sensor_id]["scaler"] for sensor_id in keys(observations))
 
-println("Prepared data for $(length(observations)) sensors")
+
 
 ### 4. Run MCMC sampling with Turing.jl ###
 

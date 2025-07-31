@@ -6,9 +6,9 @@ using LaTeXStrings
 
 const RESULTS_PATH = "/Users/bradwjenks/Code/PhD/bayesian-wq-calibration/results/wq/eki_calibration/"
 data_period = 18
-grouping = "material"
-δ_b = 0.025
-δ_s = 0.25
+grouping = "material-age"
+δ_b = 0.05
+δ_s = 0.2
 
 # load eki results
 filename = "$(data_period)_$(grouping)_δb_$(string(δ_b))_δs_$(string(δ_s)).jld2"

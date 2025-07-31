@@ -107,7 +107,7 @@ wn_train = epanet.build_model(
 
 ### 4. set θ_w groupings and bounds ###
 # grouping = "bulk only"
-grouping = "material-age-velocity" # "single", "material", "material-age", "material-age-velocity"
+grouping = "single" # "single", "material", "material-age", "material-age-velocity"
 
 θ_w_lb, θ_w_ub = if grouping == "single"
     ([-1.0], [0.0])  # G1: all pipes
@@ -154,7 +154,7 @@ missing_count = sum(ismissing.(ȳ))
 missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 # set noise
-δ_s = 0.1
+δ_s = 0.05
 δ_b = 0.05
 
 # eki calibration
@@ -165,7 +165,7 @@ missing_mask = [!ismissing(val) ? 1 : 0 for val in ȳ]
 
 ### 7. results plotting ###
 p2a, p2b, p2c = plot_eki_progress(stats; save_tex=false)
-p3 = plot_parameter_distribution(θ_init, θ_final, 5, 5; save_tex=false)
+p3 = plot_parameter_distribution(θ_init, θ_final, 2, 2; save_tex=false)
 
 
 
