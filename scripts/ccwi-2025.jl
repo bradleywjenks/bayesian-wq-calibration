@@ -766,7 +766,7 @@ b_samples = CSV.read(RESULTS_PATH * "ccwi-2025/mcmc_samples_B.csv", DataFrame)[:
 b_label = "B [1/d]"
 b_xlims = (-0.8, -0.5)
 b_bin_width = 0.013
-plot_b = plot_mcmc_param_histogram(b_samples, priors_train[:B], b_label, b_xlims, b_bin_width, wong_colors[6])
+plot_b = plot_mcmc_param_histogram(b_samples, priors_train[:B], b_label, b_xlims, b_bin_width, wong_colors[1])
 
 # wall decay (G1)
 g1_samples = CSV.read(RESULTS_PATH * "ccwi-2025/mcmc_samples_G1.csv", DataFrame)[:, :G1]
@@ -780,14 +780,14 @@ g2_samples = CSV.read(RESULTS_PATH * "ccwi-2025/mcmc_samples_G2.csv", DataFrame)
 g2_label = "G2 [m/d]"
 g2_xlims = (-0.250001, 0.0)
 g2_bin_width = 0.01
-plot_g2 = plot_mcmc_param_histogram(g2_samples, priors_train[:G2], g2_label, g2_xlims, g2_bin_width, wong_colors[6])
+plot_g2 = plot_mcmc_param_histogram(g2_samples, priors_train[:G2], g2_label, g2_xlims, g2_bin_width, wong_colors[2])
 
 # wall decay (G3)
 g3_samples = CSV.read(RESULTS_PATH * "ccwi-2025/mcmc_samples_G3.csv", DataFrame)[:, :G3]
 g3_label = "G3 [m/d]"
 g3_xlims = (-0.1001, 0.0)
 g3_bin_width = 0.004
-plot_g3 = plot_mcmc_param_histogram(g3_samples, priors_train[:G3], g3_label, g3_xlims, g3_bin_width, wong_colors[6])
+plot_g3 = plot_mcmc_param_histogram(g3_samples, priors_train[:G3], g3_label, g3_xlims, g3_bin_width, wong_colors[4])
 
 
 # make time series plots
@@ -805,7 +805,7 @@ y_df_lb_prior = forward_model(wn_test, θ_lb_prior, grouping, datetime_test, exc
 y_df_ub_prior = forward_model(wn_test, θ_ub_prior, grouping, datetime_test, exclude_sensors; sim_type="chlorine", burn_in=(1 * 24 * 4))
 
 
-sensor_id = "BW12"
+sensor_id = "BW3"
 
 begin
     x_indices = 1:length(datetime_test[1*24*4+1:end])
@@ -813,7 +813,7 @@ begin
     tick_labels = Int.(tick_positions ./ 4)
 
     observed_data = filter(row -> row.bwfl_id == sensor_id, cl_df_test).mean[1*24*4+1:end]
-    plot(x_indices, observed_data, label="obs.", color="black", linewidth=1.5, xlabel="Hour", ylabel="Chlorine [mg/L]", size=(500, 350), left_margin=8mm, right_margin=8mm, bottom_margin=8mm, top_margin=8mm, xtickfont=14, ytickfont=14, xguidefont=16, yguidefont=16,legendfont=14,grid=false, legend=(0.55, 1.0), ylims=(0, 1.0), yticks=(0:0.25:1.0), xticks=(tick_positions, tick_labels), legend_foreground_color=nothing, foreground_color_legend=nothing)
+    plot(x_indices, observed_data, label="obs.", color="black", linewidth=1.5, xlabel="Hour", ylabel="Chlorine [mg/L]", size=(600, 350), left_margin=8mm, right_margin=8mm, bottom_margin=8mm, top_margin=8mm, xtickfont=14, ytickfont=14, xguidefont=16, yguidefont=16,legendfont=14,grid=false, legend=(0.7, 1.1), ylims=(0, 1.0), yticks=(0:0.25:1.0), xticks=(tick_positions, tick_labels), legend_foreground_color=nothing, foreground_color_legend=nothing)
 
     lower_bound_posterior = y_df_2_5[!, sensor_id]
     upper_bound_posterior = y_df_97_5[!, sensor_id]
