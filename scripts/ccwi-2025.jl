@@ -741,7 +741,8 @@ parallel = true
 
 mcmc_results = run_mcmc(y_obs, gp_dict, priors_train, θ_init; n_samples=n_samples, f_b=f_b, λ=λ, parallel=parallel, ϵ=ϵ)
 
-# Export each parameter's MCMC samples to CSV
+
+# export each parameter's MCMC samples to CSV
 chain = 1
 for i in 1:length(θ_guess)
     param_samples = mcmc_results["samples"][:, i, chain]
